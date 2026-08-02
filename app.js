@@ -313,6 +313,12 @@
       net.leaveGroup(currentGroup).then(function () { goTo("groups"); });
       return;
     }
+    if (text === "/add") {
+      net.addConnectedPeers(currentGroup).then(function (count) {
+        flash(count ? "added " + count + " peer(s)" : "no connected peers to add");
+      });
+      return;
+    }
     if (text === "/invite") {
       // You invite a person, not a nickname: they need a pairing link.
       goTo("pairing");

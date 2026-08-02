@@ -227,14 +227,16 @@
   /// neither is a server.
   Net.prototype.addLink = function (channel, label) {
     var self = this;
-    var link = { channel: channel, label: label || "peer", sync: null };
+    var link = { channel: channel, label: label || "peer", sync: null, peer: null };
+
+    function post(message) {
+      if (channel.readyState !== "open") return;
+      try { channel.send(JSON.stringify(message)); } catch (e) {}
+    }
 
     link.sync = new QRCSync({
       groups: this.groups,
-      send: function (message) {
-        if (channel.readyState !== "open") return;
-        try { channel.send(JSON.stringify(message)); } catch (e) {}
-      },
+      send: post,
       ensureGroup: function (groupId) {
         // Learning about a group we've never seen: accept it, since being
         // told about it is how joining works.
@@ -254,6 +256,18 @@
     channel.onmessage = function (event) {
       var message;
       try { message = JSON.parse(event.data); } catch (e) { return; }
+
+      // Peers introduce themselves before anything else: a member is their
+      // key, and without it nobody could ever be added to a group.
+      if (message.t === "hello") {
+        link.peer = { id: message.id, name: message.name, key: message.key };
+        self.onLog("met " + (message.name || message.id.slice(0, 8)));
+        self.ensureDirectGroup(link.peer).then(function () {
+          link.sync.begin();
+          self.onChange();
+        });
+        return;
+      }
       link.sync.handle(message);
     };
     channel.onclose = function () {
@@ -263,9 +277,63 @@
     };
 
     this.links.push(link);
+    post({ t: "hello", id: this.memberId, name: this.name, key: this.identity.publicJWK });
     link.sync.begin();
     this.onChange();
     return link;
+  };
+
+  /// Pairing means "we can talk", so the natural result is a direct message —
+  /// a group with exactly the two of us. Created once, then synced like any
+  /// other group.
+  Net.prototype.ensureDirectGroup = function (peer) {
+    var self = this;
+    var existing = Object.keys(this.groups).map(function (id) { return self.groups[id]; })
+      .filter(function (group) {
+        return group.isDirect() && group.members[peer.id] && group.members[self.memberId];
+      })[0];
+    if (existing) return Promise.resolve(existing);
+
+    // Deterministic id from both member ids, so both sides create the *same*
+    // group rather than two halves of a conversation.
+    var pair = [this.memberId, peer.id].sort().join("|");
+    return QRCModel.hash("dm|" + pair).then(function (id) {
+      if (self.groups[id]) return self.groups[id];
+      var group = new QRCModel.Group({ id: id, name: "" });
+      self.groups[id] = group;
+      var members = [
+        { id: self.memberId, name: self.name, key: self.identity.publicJWK },
+        { id: peer.id, name: peer.name, key: peer.key },
+      ];
+      var joins = members.map(function (member) {
+        return QRCModel.makeEvent({
+          group: id, author: self.memberId, kind: "join", parents: [],
+          // Fixed timestamp: both sides must generate byte-identical events
+          // so their ids match and the graphs merge instead of duplicating.
+          ts: 0,
+          body: { member: member.id, name: member.name, key: member.key },
+        });
+      });
+      return Promise.all(joins).then(function (events) {
+        group.graph.merge(events);
+        group.applyMembership();
+        events.forEach(function (event) { self.broadcast(event); });
+        return self.persist(group, events).then(function () {
+          return self.rekey(group);
+        }).then(function () { return group; });
+      });
+    });
+  };
+
+  /// Adds every currently connected peer to a group, then rekeys.
+  Net.prototype.addConnectedPeers = function (group) {
+    var self = this;
+    var newcomers = this.links.map(function (link) { return link.peer; })
+      .filter(function (peer) { return peer && !group.members[peer.id]; });
+    if (!newcomers.length) return Promise.resolve(0);
+    return newcomers.reduce(function (chain, peer) {
+      return chain.then(function () { return self.addMember(group, peer); });
+    }, Promise.resolve()).then(function () { return newcomers.length; });
   };
 
   Net.prototype.broadcast = function (event) {
