@@ -153,6 +153,10 @@
 
   window.addEventListener("popstate", function (event) {
     var state = event.state || {};
+    if (pages[state.level]) {
+      goTo(state.level, false);
+      return;
+    }
     if (state.level === "chat" && state.room) {
       currentServer = state.server;
       openRoom(state.room, false);
@@ -877,28 +881,155 @@
     rememberBootstrapper(location.origin + location.pathname.replace(/[^/]*$/, ""));
   }
 
-  // --- Serverless direct connection ---
+  // --- Navigation -------------------------------------------------------
   //
-  // Everything here works with no host at all: once this page is loaded, two
-  // browsers can connect by trading a link or a QR code between people. The
-  // only infrastructure left is a public STUN server for address discovery.
+  // Four destinations: the servers list, pairing (a direct peer connection),
+  // bootstrapping (handing the app to someone who has nothing), and settings.
 
-  var directView = $("direct-view"), directEntry = $("direct-entry");
-  var directBack = $("direct-back"), directState = $("direct-state");
-  var directInvite = $("direct-invite"), directInviteOut = $("direct-invite-out");
-  var directQR = $("direct-qr"), directCopy = $("direct-copy"), directShare = $("direct-share");
-  var directReply = $("direct-reply"), directFinish = $("direct-finish");
-  var directAnswerOut = $("direct-answer-out"), directAnswerQR = $("direct-answer-qr");
-  var directCopyAnswer = $("direct-copy-answer"), directShareAnswer = $("direct-share-answer");
-  var directMessages = $("direct-messages"), directFooter = $("direct-footer");
-  var bootstrapNote = $("bootstrap-note");
-  var directText = $("direct-text"), directSend = $("direct-send");
+  var pages = {
+    servers: viewServers,
+    pairing: $("view-pairing"),
+    bootstrap: $("view-bootstrap"),
+    settings: $("view-settings"),
+  };
+
+  function goTo(name, push) {
+    Object.keys(pages).forEach(function (key) {
+      if (pages[key]) pages[key].classList.toggle("hidden", key !== name);
+    });
+    viewChannels.classList.add("hidden");
+    viewChat.classList.add("hidden");
+    drawer.classList.remove("visible");
+    level = name;
+    if (push !== false) history.pushState({ level: name }, "", "#" + name);
+    if (name === "servers") pollServers();
+    if (name === "bootstrap") showBootstrap();
+    if (name === "settings") { loadSettings(); loadDNS(); }
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".nav-item"), function (item) {
+    item.addEventListener("click", function () { goTo(item.getAttribute("data-view")); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll(".back-button"), function (button) {
+    button.addEventListener("click", function () { history.back(); });
+  });
+
+  // --- Shared helpers for the two QR pages ---------------------------------
+
+  function drawQR(image, url) {
+    try {
+      var qr = qrcode(0, "L");
+      qr.addData(url);
+      qr.make();
+      image.src = qr.createDataURL(6, 8);
+      image.dataset.ok = "1";
+    } catch (e) {
+      image.removeAttribute("src");
+      image.alt = "too long for one QR — use the link";
+      image.dataset.ok = "";
+    }
+  }
+
+  function downloadQR(image, filename) {
+    if (!image.src) return;
+    var link = document.createElement("a");
+    link.href = image.src;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text);
+    }
+    var scratch = document.createElement("textarea");
+    scratch.value = text;
+    scratch.style.position = "fixed";
+    scratch.style.opacity = "0";
+    document.body.appendChild(scratch);
+    scratch.select();
+    try { document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(scratch);
+    return Promise.resolve();
+  }
+
+  /// Native share sheet where there is one, clipboard everywhere else.
+  function shareLink(url, title) {
+    if (navigator.share) {
+      navigator.share({ title: title, url: url }).catch(function () {});
+    } else {
+      copyText(url).then(function () { flash("link copied"); });
+    }
+  }
+
+  function flash(text) {
+    var toast = document.createElement("div");
+    toast.className = "toast";
+    toast.textContent = text;
+    document.body.appendChild(toast);
+    setTimeout(function () { toast.remove(); }, 1800);
+  }
+
+  /// Where this app came from, and therefore where to send someone who needs
+  /// a copy of it.
+  function bootstrapBase() {
+    var known = knownBootstrappers();
+    if (known.length) return known[0];
+    return location.origin + location.pathname.replace(/[^/]*$/, "");
+  }
+
+  // --- Bootstrapping page --------------------------------------------------
+
+  var bootstrapQR = $("bootstrap-qr"), bootstrapURL = $("bootstrap-url");
+
+  function bootstrapLink() {
+    var base = bootstrapBase();
+    return base + (base.indexOf("?") === -1 ? "?" : "&") + "bootstrap=true";
+  }
+
+  function showBootstrap() {
+    var url = bootstrapLink();
+    bootstrapURL.textContent = url;
+    drawQR(bootstrapQR, url);
+  }
+
+  $("bootstrap-download").addEventListener("click", function () {
+    downloadQR(bootstrapQR, "qrc-bootstrap.png");
+  });
+  $("bootstrap-share").addEventListener("click", function () {
+    shareLink(bootstrapLink(), "Get QRC");
+  });
+
+  // --- Pairing page --------------------------------------------------------
+
+  var tabSend = $("tab-send"), tabReceive = $("tab-receive");
+  var pairSend = $("pair-send"), pairReceive = $("pair-receive");
+  var pairState = $("pair-state"), pairCreate = $("pair-create");
+  var pairSendOut = $("pair-send-out"), pairQR = $("pair-qr"), pairURL = $("pair-url");
+  var pairInput = $("pair-input"), pairAccept = $("pair-accept"), pairScan = $("pair-scan");
+  var pairVideo = $("pair-video");
+  var pairAnswerOut = $("pair-answer-out"), pairAnswerQR = $("pair-answer-qr");
+  var pairAnswerURL = $("pair-answer-url");
+  var pairMessages = $("pair-messages"), pairFooter = $("pair-footer");
+  var pairText = $("pair-text"), pairSendMessage = $("pair-send-message");
 
   var session = null;
-  var inviteLink = "";
-  var answerLink = "";
+  var inviteURL = "";
+  var answerURL = "";
+  var awaitingReply = false;   // true once we've issued an invitation
 
-  function directLine(name, text, mine) {
+  function showTab(which) {
+    tabSend.classList.toggle("active", which === "send");
+    tabReceive.classList.toggle("active", which === "receive");
+    pairSend.classList.toggle("hidden", which !== "send");
+    pairReceive.classList.toggle("hidden", which !== "receive");
+  }
+  tabSend.addEventListener("click", function () { showTab("send"); });
+  tabReceive.addEventListener("click", function () { showTab("receive"); });
+
+  function pairLine(name, text, mine) {
     var wrapper = document.createElement("div");
     wrapper.className = "msg " + (mine ? "me" : "them");
     var meta = document.createElement("div");
@@ -909,42 +1040,8 @@
     bubble.textContent = text;
     wrapper.appendChild(meta);
     wrapper.appendChild(bubble);
-    directMessages.appendChild(wrapper);
-    directMessages.scrollTop = directMessages.scrollHeight;
-  }
-
-  function drawQR(image, url) {
-    try {
-      var qr = qrcode(0, "L");
-      qr.addData(url);
-      qr.make();
-      image.src = qr.createDataURL(6, 8);
-    } catch (e) {
-      image.alt = "too long for a QR — use the link";
-    }
-  }
-
-  function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text);
-      return;
-    }
-    var scratch = document.createElement("textarea");
-    scratch.value = text;
-    scratch.style.position = "fixed";
-    scratch.style.opacity = "0";
-    document.body.appendChild(scratch);
-    scratch.select();
-    try { document.execCommand("copy"); } catch (e) {}
-    document.body.removeChild(scratch);
-  }
-
-  function shareOrCopy(url, title) {
-    if (navigator.share) {
-      navigator.share({ title: title, url: url }).catch(function () {});
-    } else {
-      copyText(url);
-    }
+    pairMessages.appendChild(wrapper);
+    pairMessages.scrollTop = pairMessages.scrollHeight;
   }
 
   function newSession() {
@@ -952,101 +1049,176 @@
     session = new QRCDirect({
       name: myName(),
       onState: function (state) {
-        directState.textContent = state;
+        pairState.textContent = state;
         if (state === "connected") {
-          directFooter.classList.remove("hidden");
-          $("direct-setup").classList.add("hidden");
-          directLine("", "connected directly — no server involved", false);
+          pairSend.classList.add("hidden");
+          pairReceive.classList.add("hidden");
+          document.querySelector("#view-pairing .tabs").classList.add("hidden");
+          pairMessages.classList.remove("hidden");
+          pairFooter.classList.remove("hidden");
+          stopCamera();
+          pairLine("", "connected directly — nothing in between", false);
         }
       },
       onMessage: function (message) {
-        directLine(message.name || "peer", message.text, false);
+        pairLine(message.name || "peer", message.text, false);
       },
     });
     return session;
   }
 
-  function openDirect(push) {
-    viewServers.classList.add("hidden");
-    viewChannels.classList.add("hidden");
-    viewChat.classList.add("hidden");
-    directView.classList.remove("hidden");
-    level = "direct";
-    if (push !== false) history.pushState({ level: "direct" }, "", "#direct");
+  /// The link that carries an invitation: it points at a bootstrapper so
+  /// someone without the app still gets it, and the payload rides in the
+  /// query so a native camera app can open it.
+  function pairingLink(kind, blob) {
+    var base = bootstrapBase();
+    return base + (base.indexOf("?") === -1 ? "?" : "&") +
+      "pair=true&" + kind + "=" + blob;
   }
 
-  directEntry.addEventListener("click", function () { openDirect(); });
-  directBack.addEventListener("click", function () { history.back(); });
-
-  directInvite.addEventListener("click", function () {
-    directInvite.disabled = true;
+  pairCreate.addEventListener("click", function () {
+    pairCreate.disabled = true;
+    pairState.textContent = "gathering…";
     newSession().createInvite()
       .then(function (blob) {
-        // Two links, deliberately separate. The first only gets the app onto
-        // their device; the second pairs them with us and never touches a
-        // server.
-        var bootstrappers = knownBootstrappers();
-        var bootstrapURL = bootstrappers.length ? bootstrappers[0] : "";
-        inviteLink = bootstrapURL
-          ? bootstrapURL + "#i=" + blob
-          : QRCDirect.link("i", blob);
-        directInviteOut.classList.remove("hidden");
-        drawQR(directQR, inviteLink);
-        bootstrapNote.textContent = bootstrapURL
-          ? "App comes from " + bootstrapURL + " — pairing goes straight to you."
-          : "No bootstrapper known: this link only works for someone who already has the app.";
-        directState.textContent = "waiting for their reply";
+        awaitingReply = true;
+        inviteURL = pairingLink("o", blob);
+        pairSendOut.classList.remove("hidden");
+        pairURL.textContent = inviteURL;
+        drawQR(pairQR, inviteURL);
+        pairState.textContent = "waiting for their reply";
+      })
+      .catch(function (error) { pairState.textContent = "failed: " + error; })
+      .finally(function () { pairCreate.disabled = false; });
+  });
+
+  $("pair-download").addEventListener("click", function () { downloadQR(pairQR, "qrc-invite.png"); });
+  $("pair-share").addEventListener("click", function () { shareLink(inviteURL, "Pair with me on QRC"); });
+  $("pair-answer-download").addEventListener("click", function () { downloadQR(pairAnswerQR, "qrc-reply.png"); });
+  $("pair-answer-share").addEventListener("click", function () { shareLink(answerURL, "QRC reply"); });
+
+  /// Accepts whatever the other side showed us — an invitation or a reply.
+  function acceptBlob(text) {
+    var payload = String(text).trim();
+    var match = payload.match(/[?&#][oai]=([A-Za-z0-9\-_]+)/);
+    var kind = match ? payload.charAt(payload.indexOf(match[1]) - 2) : null;
+    var blob = match ? match[1] : payload;
+    if (!blob) return;
+
+    if (awaitingReply && session && kind !== "o") {
+      pairState.textContent = "connecting…";
+      session.acceptReply(blob).catch(function (error) {
+        pairState.textContent = "that reply didn't parse: " + error;
+      });
+      return;
+    }
+    pairState.textContent = "answering…";
+    newSession().acceptInvite(blob)
+      .then(function (answerBlob) {
+        answerURL = pairingLink("a", answerBlob);
+        pairAnswerOut.classList.remove("hidden");
+        pairAnswerURL.textContent = answerURL;
+        drawQR(pairAnswerQR, answerURL);
+        pairState.textContent = "send them the reply";
       })
       .catch(function (error) {
-        directState.textContent = "could not create an invitation: " + error;
+        pairState.textContent = "that didn't parse: " + error;
+      });
+  }
+
+  pairAccept.addEventListener("click", function () { acceptBlob(pairInput.value); });
+
+  // --- Camera scanning (where the browser supports it) ---------------------
+
+  var cameraStream = null;
+  var scanTimer = null;
+
+  function stopCamera() {
+    if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(function (track) { track.stop(); });
+      cameraStream = null;
+    }
+    pairVideo.classList.add("hidden");
+  }
+
+  pairScan.addEventListener("click", function () {
+    if (cameraStream) { stopCamera(); return; }
+    if (!navigator.mediaDevices || !window.isSecureContext) {
+      pairState.textContent = "camera needs https — paste the link instead";
+      return;
+    }
+    if (typeof BarcodeDetector === "undefined") {
+      // Safari has no BarcodeDetector; the native camera app scans QRs and
+      // opens the link, which reaches the same place.
+      pairState.textContent = "this browser can't scan — use the camera app, or paste";
+      return;
+    }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(function (stream) {
+        cameraStream = stream;
+        pairVideo.srcObject = stream;
+        pairVideo.classList.remove("hidden");
+        pairVideo.play();
+        var detector = new BarcodeDetector({ formats: ["qr_code"] });
+        scanTimer = setInterval(function () {
+          detector.detect(pairVideo)
+            .then(function (codes) {
+              if (codes.length) {
+                stopCamera();
+                acceptBlob(codes[0].rawValue);
+              }
+            })
+            .catch(function () {});
+        }, 400);
       })
-      .finally(function () { directInvite.disabled = false; });
+      .catch(function (error) {
+        pairState.textContent = "camera unavailable: " + error;
+      });
   });
 
-  directCopy.addEventListener("click", function () { copyText(inviteLink); });
-  directShare.addEventListener("click", function () { shareOrCopy(inviteLink, "Join me on QRC"); });
-  directCopyAnswer.addEventListener("click", function () { copyText(answerLink); });
-  directShareAnswer.addEventListener("click", function () { shareOrCopy(answerLink, "QRC reply"); });
-
-  directFinish.addEventListener("click", function () {
-    var blob = directReply.value.trim();
-    if (!blob || !session) return;
-    directState.textContent = "connecting…";
-    session.acceptReply(blob).catch(function (error) {
-      directState.textContent = "that reply didn't parse: " + error;
-    });
-  });
-
-  function send() {
-    var text = directText.value.trim();
+  function sendPairMessage() {
+    var text = pairText.value.trim();
     if (!text || !session) return;
     if (session.send(text)) {
-      directLine(myName(), text, true);
-      directText.value = "";
+      pairLine(myName(), text, true);
+      pairText.value = "";
     }
   }
-  directSend.addEventListener("click", send);
-  directText.addEventListener("keydown", function (event) {
-    if (event.key === "Enter") send();
+  pairSendMessage.addEventListener("click", sendPairMessage);
+  pairText.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") sendPairMessage();
   });
 
-  /// Someone opened an invitation link: answer it straight away.
+  // --- Arriving by link ----------------------------------------------------
+  //
+  // ?bootstrap=true  someone sent us here to get the app; go straight to
+  //                  pairing, which is what they want next.
+  // ?pair=true&o=..  they showed us an invitation; answer it automatically.
+  // ?pair=true&a=..  they sent back a reply.
+
   (function () {
-    var incoming = QRCDirect.readHash();
-    if (!incoming || incoming.kind !== "i") return;
-    history.replaceState({}, "", location.pathname);
-    openDirect(false);
-    directInvite.classList.add("hidden");
-    newSession().acceptInvite(incoming.blob)
-      .then(function (blob) {
-        answerLink = QRCDirect.link("a", blob);
-        directAnswerOut.classList.remove("hidden");
-        drawQR(directAnswerQR, answerLink);
-        directState.textContent = "send them the reply";
-      })
-      .catch(function (error) {
-        directState.textContent = "that invitation didn't parse: " + error;
-      });
+    var search = location.search || "";
+    var hash = location.hash || "";
+    var offer = (search + hash).match(/[?&#]o=([A-Za-z0-9\-_]+)/);
+    var reply = (search + hash).match(/[?&#]a=([A-Za-z0-9\-_]+)/);
+
+    if (/[?&]pair=true/.test(search) || offer || reply) {
+      history.replaceState({ level: "pairing" }, "", location.pathname);
+      goTo("pairing", false);
+      if (offer) {
+        showTab("receive");
+        acceptBlob(offer[1]);
+      } else if (reply) {
+        showTab("receive");
+        acceptBlob(reply[1]);
+      }
+      return;
+    }
+    if (/[?&]bootstrap=true/.test(search)) {
+      history.replaceState({ level: "pairing" }, "", location.pathname);
+      goTo("pairing", false);
+    }
   })();
 
   // --- Main loop ---

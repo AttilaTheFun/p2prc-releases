@@ -20,6 +20,25 @@
   </header>
 
   <aside id="drawer">
+    <button class="nav-item" data-view="servers">Servers</button>
+    <button class="nav-item" data-view="pairing">Pairing</button>
+    <button class="nav-item" data-view="bootstrap">Bootstrapping</button>
+    <button class="nav-item" data-view="settings">Settings</button>
+  </aside>
+
+  <main id="servers"></main>
+  <button id="add-server" title="Join another server">+</button>
+</div>
+
+<!-- Settings -->
+<div id="view-settings" class="view hidden">
+  <header>
+    <div class="brand">
+      <button class="back-button" title="Back">←</button>
+      <h1>Settings</h1>
+    </div>
+  </header>
+  <main class="page">
     <span class="field-label">Network</span>
     <div class="setting">
       <label>Mode</label>
@@ -59,11 +78,85 @@
       <button id="dns-apply">Save DNS settings</button>
       <p id="dns-status" class="sub"></p>
     </div>
-  </aside>
+    </main>
+</div>
 
-  <button id="direct-entry" class="direct-entry">Connect directly to someone — no server</button>
-  <main id="servers"></main>
-  <button id="add-server" title="Join another server">+</button>
+<!-- Bootstrapping: hand the app to someone who doesn't have it -->
+<div id="view-bootstrap" class="view hidden">
+  <header>
+    <div class="brand">
+      <button class="back-button" title="Back">←</button>
+      <h1>Bootstrapping</h1>
+    </div>
+  </header>
+  <main class="page code-page">
+    <p class="sub">A browser can't hand the app to a device that has nothing.
+    Point them here and they'll get it, then land straight on Pairing.</p>
+    <div class="code-row">
+      <button id="bootstrap-download" class="icon-button" title="Save the QR image">⬇</button>
+      <img id="bootstrap-qr" alt="Bootstrap QR code">
+      <button id="bootstrap-share" class="icon-button" title="Share the link">⇪</button>
+    </div>
+    <code id="bootstrap-url"></code>
+    <p class="sub">This only delivers the app. Pairing happens directly between
+    you and them and never reaches this host.</p>
+  </main>
+</div>
+
+<!-- Pairing: the direct peer-to-peer connection -->
+<div id="view-pairing" class="view hidden">
+  <header>
+    <div class="brand">
+      <button class="back-button" title="Back">←</button>
+      <h1>Pairing</h1>
+    </div>
+    <span id="pair-state" class="sub"></span>
+  </header>
+
+  <div class="tabs">
+    <button id="tab-send" class="tab active">Send</button>
+    <button id="tab-receive" class="tab">Receive</button>
+  </div>
+
+  <main class="page code-page" id="pair-send">
+    <p class="sub">Show this to the person you want to talk to, or send them
+    the link. It connects the two browsers directly.</p>
+    <button id="pair-create">Create an invitation</button>
+    <div id="pair-send-out" class="hidden">
+      <div class="code-row">
+        <button id="pair-download" class="icon-button" title="Save the QR image">⬇</button>
+        <img id="pair-qr" alt="Pairing QR code">
+        <button id="pair-share" class="icon-button" title="Share the link">⇪</button>
+      </div>
+      <code id="pair-url"></code>
+      <p class="sub">Then switch to <b>Receive</b> to take their reply.</p>
+    </div>
+  </main>
+
+  <main class="page hidden" id="pair-receive">
+    <p class="sub">Scan what they're showing, or paste the link they sent.
+    Works for an invitation or a reply — it figures out which.</p>
+    <button id="pair-scan">Scan with camera</button>
+    <video id="pair-video" class="hidden" playsinline muted></video>
+    <textarea id="pair-input" rows="4" placeholder="paste the link or code here"
+      autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+    <button id="pair-accept">Connect</button>
+    <div id="pair-answer-out" class="hidden">
+      <span class="field-label">Send this reply back to them</span>
+      <div class="code-row">
+        <button id="pair-answer-download" class="icon-button" title="Save the QR image">⬇</button>
+        <img id="pair-answer-qr" alt="Reply QR code">
+        <button id="pair-answer-share" class="icon-button" title="Share the link">⇪</button>
+      </div>
+      <code id="pair-answer-url"></code>
+    </div>
+  </main>
+
+  <main id="pair-messages" class="hidden"></main>
+  <footer id="pair-footer" class="hidden">
+    <input id="pair-text" type="text" placeholder="message…" maxlength="2000" autocomplete="off">
+    <button id="pair-send-message">Send</button>
+  </footer>
 </div>
 
 <!-- Level 2: channels of one server -->
@@ -105,55 +198,6 @@
   <footer>
     <input id="text" type="text" placeholder="message… (/nick to rename)" maxlength="2000" autocomplete="off">
     <button id="send">Send</button>
-  </footer>
-</div>
-
-<!-- Serverless direct connection -->
-<div id="direct-view" class="view hidden">
-  <header>
-    <div class="brand">
-      <button id="direct-back" title="Back">←</button>
-      <h1>Direct</h1>
-    </div>
-    <span id="direct-state" class="sub"></span>
-  </header>
-
-  <section id="direct-setup">
-    <div class="drawer-section">
-      <p class="sub">No server, no DNS. Send an invitation any way you like —
-      the other person opens it, sends back a reply, and the two browsers talk
-      directly.</p>
-      <button id="direct-invite">Create an invitation</button>
-    </div>
-
-    <div class="drawer-section hidden" id="direct-invite-out">
-      <span class="field-label">1. Send them this</span>
-      <img id="direct-qr" alt="Invitation QR code">
-      <div class="row-fields">
-        <button id="direct-copy">Copy link</button>
-        <button id="direct-share" class="ghost">Share…</button>
-      </div>
-      <p id="bootstrap-note" class="sub"></p>
-      <span class="field-label">2. Paste their reply here</span>
-      <textarea id="direct-reply" rows="3" placeholder="paste the reply link they send back" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
-      <button id="direct-finish">Connect</button>
-    </div>
-
-    <div class="drawer-section hidden" id="direct-answer-out">
-      <span class="field-label">Send this reply back to them</span>
-      <img id="direct-answer-qr" alt="Reply QR code">
-      <div class="row-fields">
-        <button id="direct-copy-answer">Copy reply link</button>
-        <button id="direct-share-answer" class="ghost">Share…</button>
-      </div>
-      <p class="sub">Then wait — the chat opens as soon as they paste it in.</p>
-    </div>
-  </section>
-
-  <main id="direct-messages"></main>
-  <footer id="direct-footer" class="hidden">
-    <input id="direct-text" type="text" placeholder="message…" maxlength="2000" autocomplete="off">
-    <button id="direct-send">Send</button>
   </footer>
 </div>
 
