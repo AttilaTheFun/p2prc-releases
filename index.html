@@ -39,46 +39,23 @@
     </div>
   </header>
   <main class="page">
-    <span class="field-label">Network</span>
-    <div class="setting">
-      <label>Mode</label>
-      <div class="segmented">
-        <button id="mode-ipv4" class="seg">IPv4</button>
-        <button id="mode-ipv6" class="seg">IPv6</button>
-      </div>
-    </div>
-    <div class="setting" id="stun-row">
-      <label for="stun-toggle">STUN <span class="sub">discover public address</span></label>
-      <input type="checkbox" id="stun-toggle" checked>
-    </div>
-    <div class="setting" id="upnp-row">
-      <label for="upnp-toggle">UPnP <span class="sub">map port on router</span></label>
-      <input type="checkbox" id="upnp-toggle" checked>
-    </div>
-    <button id="settings-apply">Apply</button>
-    <p id="settings-status" class="sub"></p>
+    <span class="field-label">You</span>
+    <p class="sub">Your identity is a keypair held on this device. Members are
+    named by their key, not by a nickname anyone could claim.</p>
+    <code id="identity-fingerprint">…</code>
+    <p class="sub" id="identity-backing"></p>
+    <label class="field-label" for="nick-field">Display name</label>
+    <input id="nick-field" type="text" placeholder="anon" maxlength="40" autocomplete="nickname">
 
-    <hr class="divider">
-    <div class="setting">
-      <label for="dns-toggle">Publish to Duck DNS <span class="sub">optional</span></label>
-      <input type="checkbox" id="dns-toggle">
-    </div>
-    <p class="sub">Off by default. QRC needs no DNS — the QR carries a raw
-    address and pins a self-signed certificate, which our own clients verify.
-    Turn this on only to support third-party IRC clients that refuse
-    self-signed certificates: your address is published to Duck DNS and the
-    certificate you paste below is served instead.</p>
-    <div id="dns-fields" class="hidden">
-      <label class="field-label" for="dns-host">Duck DNS hostname</label>
-      <input id="dns-host" type="text" placeholder="yourname" autocomplete="off" autocapitalize="off" spellcheck="false">
-      <label class="field-label" for="dns-token">Access token</label>
-      <input id="dns-token" type="password" placeholder="kept on this device" autocomplete="off">
-      <label class="field-label" for="dns-pem">Certificate + private key (PEM)</label>
-      <textarea id="dns-pem" rows="5" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----BEGIN PRIVATE KEY-----&#10;…"></textarea>
-      <button id="dns-apply">Save DNS settings</button>
-      <p id="dns-status" class="sub"></p>
-    </div>
-    </main>
+    <span class="field-label">Bootstrappers</span>
+    <p class="sub">Where a new device can fetch the app. Anything that serves a
+    static page will do; this list is shared with people you invite.</p>
+    <div id="bootstrapper-list"></div>
+
+    <span class="field-label">Storage</span>
+    <p class="sub" id="storage-summary"></p>
+    <button id="forget-all" class="ghost">Forget everything on this device</button>
+  </main>
 </div>
 
 <!-- Bootstrapping: hand the app to someone who doesn't have it -->
@@ -123,8 +100,6 @@
   <main class="page code-page" id="pair-send">
     <p class="sub">Show this to the person you want to talk to, or send them
     the link. It connects the two browsers directly.</p>
-    <p class="sub">Your identity: <code id="identity-fingerprint">…</code>
-    <span id="identity-backing"></span></p>
     <button id="pair-create">Create an invitation</button>
     <div id="pair-send-out" class="hidden">
       <div class="code-row">
@@ -190,6 +165,6 @@
 <script src="group_crypto.js?v=2f984da0"></script>
 <script src="store.js?v=5d6480e2"></script>
 <script src="net.js?v=ce677452"></script>
-<script src="app.js?v=80b5a63e"></script>
+<script src="app.js?v=64b161af"></script>
 </body>
 </html>
