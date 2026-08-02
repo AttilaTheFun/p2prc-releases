@@ -17,13 +17,13 @@
   <canvas id="canvas"></canvas>
   <div id="invite-qr" class="qr"></div>
   <div id="answer-qr" class="qr"></div>
-  <script src="./runtime/react.production.min.js"></script>
-  <script src="./runtime/react-dom.production.min.js"></script>
-  <script src="./assets/qrcode.js"></script>
-  <script src="./assets/qr.js"></script>
+  <script src="./runtime/react.production.min.js?v=d949f1c3"></script>
+  <script src="./runtime/react-dom.production.min.js?v=35f4f974"></script>
+  <script src="./assets/qrcode.js?v=18ae399f"></script>
+  <script src="./assets/qr.js?v=e6766d64"></script>
   <script type="module">
-    import { boot } from "./runtime/boot.js";
-    import { Dependencies } from "./app_bridge.js";
+    import { boot } from "./runtime/boot.js?v=685db28e";
+    import { Dependencies } from "./app_bridge.js?v=7be24e5c";
 
     // The host half of the client: WebRTC, localStorage, and the URL. It moves
     // bytes and nothing else — every frame it sends is ciphertext the wasm
@@ -174,7 +174,7 @@
 
     boot({
       canvas: document.getElementById("canvas"),
-      wasmURL: "./app.wasm",
+      wasmURL: "./app.wasm?v=05d5bea8",
       rendererName: new URLSearchParams(location.search).get("renderer") || "react",
       dependencies: { host: Dependencies.p2PRCHost(() => host) },
     }).then((result) => {
