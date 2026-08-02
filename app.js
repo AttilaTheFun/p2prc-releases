@@ -61,12 +61,19 @@
     return (connection.ircHost || location.hostname) + " — this host";
   }
 
+  // Read once. Local storage is shared across every tab on this origin, so
+  // reading it on each call means another window renaming itself would
+  // silently change who *we* are — and messages are addressed by nick, so
+  // that quietly breaks encryption addressing.
+  var myNick = localStorage.getItem("qrc-name") || "anon";
+
   function myName() {
-    return localStorage.getItem("qrc-name") || "anon";
+    return myNick;
   }
 
   /// One name everywhere: the servers, IRC, and any direct pairing.
   function setNick(nick) {
+    myNick = nick;
     localStorage.setItem("qrc-name", nick);
     if (session) session.name = nick;
     api("/api/nick", {
