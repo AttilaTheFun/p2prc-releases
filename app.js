@@ -10,7 +10,7 @@
   var statusDot = $("status-dot"), peerCount = $("peer-count");
   var menuToggle = $("menu-toggle"), drawer = $("drawer");
   var serversEl = $("servers"), addServerButton = $("add-server");
-  var viewServers = $("view-servers"), viewChannels = $("view-channels"), viewChat = $("view-chat");
+  var viewGroups = $("view-groups");
   var channelsBack = $("channels-back"), serverTitle = $("server-title"), serverPeers = $("server-peers");
   var shareToggle = $("share-toggle"), sharePanel = $("share-panel");
   var qrImage = $("qr-image"), joinUrlEl = $("join-url"), copyToast = $("copy-toast");
@@ -119,74 +119,12 @@
   // --- Navigation: servers → channels → chat ---
 
   var level = "servers";
-  var currentServer = null;   // {id, name, isLocal}
-  var currentRoom = null;     // {id, name}
-  var lastId = 0;
-  var connection = {};        // url / key / ircHost / ircPort reported by the host
+  var currentGroupId = null;
 
   function show(next) {
     level = next;
     if (directView) directView.classList.add("hidden");
-    viewServers.classList.toggle("hidden", next !== "servers");
-    viewChannels.classList.toggle("hidden", next !== "channels");
-    viewChat.classList.toggle("hidden", next !== "chat");
   }
-
-  function openServers(push) {
-    currentServer = null;
-    currentRoom = null;
-    if (peers) peers.setRoom("");
-    show("servers");
-    if (push !== false) history.pushState({ level: "servers" }, "", "#servers");
-    pollServers();
-  }
-
-  function openServer(server, push) {
-    currentServer = server;
-    currentRoom = null;
-    serverTitle.textContent = server.name;
-    // Only your own server has a QR to share; the others are someone else's.
-    shareToggle.classList.toggle("hidden", !server.isLocal);
-    sharePanel.classList.remove("visible");
-    show("channels");
-    if (push !== false) history.pushState({ level: "channels", server: server }, "", "#" + server.id);
-    pollChannels();
-  }
-
-  function openRoom(room, push) {
-    currentRoom = room;
-    lastId = 0;
-    messagesEl.innerHTML = "";
-    roomTitle.textContent = "#" + room.name;
-    show("chat");
-    if (push !== false) {
-      history.pushState({ level: "chat", server: currentServer, room: room }, "", "#" + room.id);
-    }
-    if (peers) peers.setRoom(room.id);
-    pollRoom();
-    textInput.focus();
-  }
-
-  channelsBack.addEventListener("click", function () { history.back(); });
-  chatBack.addEventListener("click", function () { history.back(); });
-
-  window.addEventListener("popstate", function (event) {
-    var state = event.state || {};
-    if (pages[state.level]) {
-      goTo(state.level, false);
-      return;
-    }
-    if (state.level === "chat" && state.room) {
-      currentServer = state.server;
-      openRoom(state.room, false);
-    } else if (state.level === "direct") {
-      openDirect(false);
-    } else if (state.level === "channels" && state.server) {
-      openServer(state.server, false);
-    } else {
-      openServers(false);
-    }
-  });
 
   // --- QR sharing (your own server) ---
 
@@ -248,7 +186,25 @@
     ircDetails.innerHTML = html;
   }
 
-  // --- Level 1: servers ---
+  // --- Groups --------------------------------------------------------------
+  //
+  // Groups replace servers entirely. A direct message is a group with two
+  // members; a group chat is the same thing with more. Nobody hosts one:
+  // every member holds the full history, and members reconcile whenever they
+  // meet. A group survives all of its members being offline.
+
+  var net = new QRCNet({
+    name: myName(),
+    onChange: function () { renderGroups(); renderGroup(); },
+    onLog: function (line) { console.log("[qrc] " + line); },
+  });
+
+  var groupsEl = $("groups");
+  var viewGroup = $("view-group");
+  var groupTitle = $("group-title"), groupEpoch = $("group-epoch");
+  var groupOnline = $("group-online"), groupMessages = $("group-messages");
+  var groupText = $("group-text"), groupSend = $("group-send");
+  var currentGroup = null;
 
   function timeLabel(ts) {
     if (!ts) return "";
@@ -259,430 +215,131 @@
     return when.toLocaleDateString([], { month: "short", day: "numeric" });
   }
 
-  function renderServers(list) {
-    serversEl.innerHTML = "";
-    list.forEach(function (server) {
-      var row = document.createElement("div");
-      row.className = "server-row";
-
-      var top = document.createElement("div");
-      top.className = "row";
-      var name = document.createElement("span");
-      name.className = "name";
-      name.textContent = server.isLocal ? localServerLabel() : server.name;
-      top.appendChild(name);
-      if (server.isLocal) {
-        var badge = document.createElement("span");
-        badge.className = "badge";
-        badge.textContent = isHostOperator() ? "hosting" : "you're a guest";
-        top.appendChild(badge);
-      } else {
-        if (server.tls) {
-          var lock = document.createElement("span");
-          lock.className = "badge lock";
-          lock.textContent = "TLS";
-          top.appendChild(lock);
-        }
-        var time = document.createElement("span");
-        time.className = "meta";
-        time.textContent = timeLabel(server.lastTs);
-        top.appendChild(time);
-      }
-
-      var meta = document.createElement("div");
-      meta.className = "meta";
-      meta.textContent = server.last ||
-        (server.channels + (server.channels === 1 ? " channel" : " channels"));
-
-      var state = document.createElement("div");
-      state.className = "state " + server.status;
-      state.textContent = server.detail || server.status;
-
-      row.appendChild(top);
-      row.appendChild(meta);
-      row.appendChild(state);
-      var label = server.isLocal ? localServerLabel() : server.name;
-      row.addEventListener("click", function () {
-        openServer({ id: server.id, name: label, isLocal: server.isLocal });
-      });
-
-      if (!server.isLocal) {
-        var leave = document.createElement("button");
-        leave.className = "leave";
-        leave.textContent = "leave";
-        leave.addEventListener("click", function (event) {
-          event.stopPropagation();
-          api("/api/servers/remove", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: server.id }),
-          }).then(pollServers).catch(function () {});
-        });
-        row.appendChild(leave);
-      }
-      serversEl.appendChild(row);
-    });
-  }
-
-  function pollServers() {
-    api("/api/servers?cid=" + encodeURIComponent(clientId))
-      .then(function (response) { return response.json(); })
-      .then(function (state) {
-        statusDot.className = "dot online";
-        connection = Object.assign({}, connection, state);
-        renderServers(state.servers || []);
-        syncVersion(state.bundleVersion);
-      })
-      .catch(function () {
-        statusDot.className = "dot";
-      });
-  }
-
-  // --- Joining another server ---
-
-  /// A QRC link carries host, port and key; plain "host:port" works too.
-  function parseJoinTarget(text) {
-    var result = { host: "", port: "", key: "", fingerprint: "", tls: false };
-    if (!text) return result;
-    text = text.trim();
-    var match = text.match(/^(?:(https?|ircs?):\/\/)?(?::([^@]+)@)?(\[[^\]]+\]|[^:\/?#\s]+)(?::(\d+))?/i);
-    if (match) {
-      result.host = match[3] || "";
-      if (match[2]) result.key = match[2];
-      // A web link's port is the HTTP port, not IRC — only trust irc:// ports.
-      if (match[4] && (!match[1] || /^ircs?$/i.test(match[1]))) result.port = match[4];
-    }
-    var keyParam = text.match(/[?&]k=([^&#\s]+)/);
-    if (keyParam) result.key = decodeURIComponent(keyParam[1]);
-    // A QRC link carries the cert fingerprint (f) and TLS port (tp): with
-    // those we can pin the exact certificate instead of trusting a CA.
-    var fingerprintParam = text.match(/[?&]f=([0-9a-fA-F]{64})/);
-    if (fingerprintParam) {
-      result.fingerprint = fingerprintParam[1].toLowerCase();
-      result.tls = true;
-    }
-    var tlsPortParam = text.match(/[?&]tp=(\d+)/);
-    if (tlsPortParam) result.port = tlsPortParam[1];
-    // ircs:// means TLS too.
-    if (/^ircs:/i.test(text.trim())) result.tls = true;
-    return result;
-  }
-
-  function openJoinSheet() {
-    joinSheet.classList.remove("hidden");
-    joinPaste.value = "";
-    joinPort.value = "6667";
-    joinKey.value = "";
-    joinPaste.focus();
-  }
-
-  var pastedFingerprint = "";
-
-  function fillFromPaste() {
-    var parsed = parseJoinTarget(joinPaste.value);
-    if (parsed.host && parsed.host !== joinPaste.value.trim()) joinPaste.value = parsed.host;
-    if (parsed.port) joinPort.value = parsed.port;
-    if (parsed.key) joinKey.value = parsed.key;
-    pastedFingerprint = parsed.fingerprint || "";
-    tlsToggle.checked = parsed.tls || !!parsed.fingerprint;
-    reflectTLS();
-  }
-
-  function reflectTLS() {
-    tlsNote.textContent = tlsToggle.checked
-      ? (pastedFingerprint
-          ? "encrypted, certificate pinned from their QR code"
-          : "encrypted, but their certificate is unverified")
-      : "plaintext";
-  }
-  tlsToggle.addEventListener("change", reflectTLS);
-
-  var guestExplanation =
-    "Browsers can't accept inbound network connections, so this tab can't host " +
-    "a server or change this host's network settings. Those controls belong to " +
-    "the device running QRC — run QRC on this device to host your own.";
-
-  if (!isHostOperator()) {
-    // A browser tab has no listening socket, so it can neither host nor
-    // reconfigure the host it's visiting. Disable rather than hide, so the
-    // capability is visible and the reason is explainable.
-    addServerButton.disabled = true;
-    addServerButton.title = guestExplanation;
-    menuToggle.disabled = true;
-    menuToggle.title = guestExplanation;
-    addServerButton.addEventListener("click", function (event) {
-      event.preventDefault();
-      showGuestNotice();
-    });
-    menuToggle.addEventListener("click", function (event) {
-      event.preventDefault();
-      showGuestNotice();
-    });
-  }
-
-  function showGuestNotice() {
-    var existing = $("guest-notice");
-    if (existing) { existing.remove(); return; }
-    var notice = document.createElement("div");
-    notice.id = "guest-notice";
-    notice.textContent = guestExplanation;
-    serversEl.parentNode.insertBefore(notice, serversEl);
-    setTimeout(function () { notice.remove(); }, 9000);
-  }
-
-  addServerButton.addEventListener("click", function () {
-    if (!addServerButton.disabled) openJoinSheet();
-  });
-  joinCancel.addEventListener("click", function () { joinSheet.classList.add("hidden"); });
-  joinPaste.addEventListener("paste", function () { setTimeout(fillFromPaste, 0); });
-  joinPaste.addEventListener("change", fillFromPaste);
-
-  joinConfirm.addEventListener("click", function () {
-    var parsed = parseJoinTarget(joinPaste.value);
-    var host = parsed.host || joinPaste.value.trim();
-    if (!host) return;
-    api("/api/servers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        host: host,
-        port: parseInt(joinPort.value, 10) || parseInt(parsed.port, 10) || (tlsToggle.checked ? 6697 : 6667),
-        key: joinKey.value.trim() || parsed.key || "",
-        nick: myName(),
-        tls: tlsToggle.checked,
-        fingerprint: pastedFingerprint || parsed.fingerprint || "",
-      }),
-    })
-      .then(function () {
-        joinSheet.classList.add("hidden");
-        pollServers();
-      })
-      .catch(function () {});
-  });
-
-  // --- Level 2: channels ---
-
-  function renderChannels(rooms) {
-    channelsEl.innerHTML = "";
-    if (!rooms.length) {
+  function renderGroups() {
+    if (!groupsEl) return;
+    var ids = Object.keys(net.groups);
+    groupsEl.innerHTML = "";
+    if (!ids.length) {
       var empty = document.createElement("div");
       empty.className = "empty-inbox";
-      empty.textContent = "No channels yet — tap + to open one.";
-      channelsEl.appendChild(empty);
+      empty.textContent = "No groups yet. Pair with someone, or tap + to start one.";
+      groupsEl.appendChild(empty);
       return;
     }
-    rooms.forEach(function (room) {
-      var row = document.createElement("div");
-      row.className = "channel-row";
-      var top = document.createElement("div");
-      top.className = "row";
-      var name = document.createElement("span");
-      name.className = "name";
-      name.textContent = "#" + room.name;
-      var time = document.createElement("span");
-      time.className = "preview";
-      time.textContent = timeLabel(room.lastTs);
-      top.appendChild(name);
-      top.appendChild(time);
-      var preview = document.createElement("div");
-      preview.className = "preview";
-      preview.textContent = room.count === 0 ? "no messages yet" : room.lastName + ": " + room.last;
-      row.appendChild(top);
-      row.appendChild(preview);
-      row.addEventListener("click", function () {
-        openRoom({ id: room.id, name: room.name });
+    ids.map(function (id) { return net.groups[id]; })
+      .sort(function (a, b) {
+        var la = a.messages().slice(-1)[0], lb = b.messages().slice(-1)[0];
+        return (lb ? lb.ts : 0) - (la ? la.ts : 0);
+      })
+      .forEach(function (group) {
+        var row = document.createElement("div");
+        row.className = "server-row";
+        var top = document.createElement("div");
+        top.className = "row";
+        var name = document.createElement("span");
+        name.className = "name";
+        name.textContent = group.title(net.memberId);
+        var time = document.createElement("span");
+        time.className = "meta";
+        var last = group.messages().slice(-1)[0];
+        time.textContent = last ? timeLabel(last.ts) : "";
+        top.appendChild(name);
+        top.appendChild(time);
+
+        var meta = document.createElement("div");
+        meta.className = "meta";
+        var memberCount = Object.keys(group.members).length;
+        meta.textContent = (group.isDirect() ? "direct message" : memberCount + " members") +
+          " · " + group.messages().length + " messages";
+
+        row.appendChild(top);
+        row.appendChild(meta);
+        row.addEventListener("click", function () { openGroup(group); });
+        groupsEl.appendChild(row);
       });
-      channelsEl.appendChild(row);
+  }
+
+  function openGroup(group, push) {
+    currentGroup = group;
+    Object.keys(pages).forEach(function (key) {
+      if (pages[key]) pages[key].classList.add("hidden");
+    });
+    viewGroup.classList.remove("hidden");
+    level = "group";
+    if (push !== false) history.pushState({ level: "group", group: group.id }, "", "#" + group.id);
+    renderGroup();
+    groupText.focus();
+  }
+
+  function renderGroup() {
+    if (!currentGroup || viewGroup.classList.contains("hidden")) return;
+    var group = currentGroup;
+    groupTitle.textContent = group.title(net.memberId);
+    groupEpoch.textContent = "epoch " + group.epoch;
+    groupOnline.textContent = net.onlineCount() + " online";
+
+    net.readGroup(group).then(function (lines) {
+      if (currentGroup !== group) return;
+      groupMessages.innerHTML = "";
+      lines.forEach(function (line) {
+        var mine = line.author === net.memberId;
+        var wrapper = document.createElement("div");
+        wrapper.className = "msg " + (mine ? "me" : "them");
+        var meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = line.name + (line.encrypted && !line.locked ? " \ud83d\udd12 " : " ") +
+          new Date(line.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        var bubble = document.createElement("div");
+        bubble.className = "bubble";
+        bubble.textContent = line.text;
+        wrapper.appendChild(meta);
+        wrapper.appendChild(bubble);
+        groupMessages.appendChild(wrapper);
+      });
+      groupMessages.scrollTop = groupMessages.scrollHeight;
     });
   }
 
-  function pollChannels() {
-    if (!currentServer) return;
-    var server = currentServer;
-    api("/api/channels?server=" + encodeURIComponent(server.id) +
-        "&cid=" + encodeURIComponent(clientId))
-      .then(function (response) { return response.json(); })
-      .then(function (state) {
-        if (currentServer !== server) return;
-        connection = Object.assign({}, connection, state);
-        serverPeers.textContent = state.peers + (state.peers === 1 ? " device" : " devices");
-        renderChannels(state.rooms || []);
-        if (server.isLocal) renderShare();
-        syncVersion(state.bundleVersion);
-      })
-      .catch(function () { serverPeers.textContent = "offline"; });
+  function sendToGroup() {
+    var text = groupText.value.trim();
+    if (!text || !currentGroup) return;
+    groupText.value = "";
+
+    if (text.indexOf("/nick ") === 0) {
+      setNick(text.slice(6).trim());
+      net.name = myName();
+      return;
+    }
+    if (text === "/leave") {
+      net.leaveGroup(currentGroup).then(function () { history.back(); });
+      return;
+    }
+    if (text.indexOf("/invite") === 0) {
+      // Inviting is done by pairing: the person needs a link, not a nickname.
+      goTo("pairing");
+      pairState.textContent = "invite them, then add them to " + currentGroup.title(net.memberId);
+      pendingInviteGroup = currentGroup;
+      return;
+    }
+    net.send(currentGroup, text);
   }
 
-  function createChannel(name) {
-    return api("/api/rooms", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: name.replace(/^#/, ""),
-        server: currentServer ? currentServer.id : "local",
-        cid: clientId,
-      }),
-    }).then(function (response) { return response.json(); });
-  }
+  var pendingInviteGroup = null;
 
-  addChannelButton.addEventListener("click", function () {
-    var name = prompt("Channel name:");
+  groupSend.addEventListener("click", sendToGroup);
+  groupText.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") sendToGroup();
+  });
+
+  $("new-group").addEventListener("click", function () {
+    var name = prompt("Group name:");
     if (!name || !name.trim()) return;
-    createChannel(name.trim()).then(function (room) { openRoom(room); }).catch(function () {});
+    ensureIdentity().then(function () {
+      if (!net.identity) return net.start(identity);
+    }).then(function () {
+      return net.createGroup(name.trim(), []);
+    }).then(function (group) { openGroup(group); });
   });
-
-  // --- Level 3: chat ---
-
-  var renderedRecently = {};
-
-  /// True the first time a given (sender, text) is seen; false for the copy
-  /// that arrives by the other path moments later.
-  function firstSighting(message) {
-    var key = (message.cid || "") + "|" + message.text;
-    var now = Date.now() / 1000;
-    for (var old in renderedRecently) {
-      if (now - renderedRecently[old] > 30) delete renderedRecently[old];
-    }
-    if (renderedRecently[key] !== undefined) return false;
-    renderedRecently[key] = now;
-    return true;
-  }
-
-  function addMessage(message) {
-    if (!firstSighting(message)) return;
-    var mine = message.cid === clientId;
-    var wrapper = document.createElement("div");
-    wrapper.className = "msg " + (mine ? "me" : "them");
-    var meta = document.createElement("div");
-    meta.className = "meta";
-    var when = new Date(message.ts * 1000);
-    meta.textContent = message.name + " · " +
-      when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    var bubble = document.createElement("div");
-    bubble.className = "bubble";
-    bubble.textContent = message.text;
-    wrapper.appendChild(meta);
-    wrapper.appendChild(bubble);
-    messagesEl.appendChild(wrapper);
-  }
-
-  function systemLine(text) {
-    var el = document.createElement("div");
-    el.className = "system";
-    el.textContent = text;
-    messagesEl.appendChild(el);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-  }
-
-  function pollRoom() {
-    if (!currentRoom) return;
-    var room = currentRoom;
-    api("/api/state?room=" + encodeURIComponent(room.id) +
-        "&since=" + lastId + "&cid=" + encodeURIComponent(clientId))
-      .then(function (response) { return response.json(); })
-      .then(function (state) {
-        if (currentRoom !== room) return;
-        roomPeers.textContent = state.peers + (state.peers === 1 ? " device" : " devices");
-        (state.messages || []).forEach(function (message) {
-          if (message.id > lastId) {
-            lastId = message.id;
-            addMessage(message);
-          }
-        });
-        if ((state.messages || []).length) messagesEl.scrollTop = messagesEl.scrollHeight;
-        syncVersion(state.bundleVersion);
-      })
-      .catch(function () { roomPeers.textContent = "offline"; });
-  }
-
-  function postMessage(text) {
-    // Fire down the direct channels first — that copy arrives immediately,
-    // without waiting for the host round trip.
-    if (peers) peers.send(text, myName());
-    sendButton.disabled = true;
-    api("/api/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room: currentRoom.id, name: myName(), text: text, cid: clientId }),
-    })
-      .then(function () { textInput.value = ""; pollRoom(); })
-      .finally(function () { sendButton.disabled = false; textInput.focus(); });
-  }
-
-  /// IRC-style commands typed into the message box.
-  function handleCommand(text) {
-    if (text[0] !== "/") return false;
-    var parts = text.slice(1).split(/\s+/);
-    var command = parts[0].toLowerCase();
-    var rest = text.slice(1 + parts[0].length).trim();
-
-    if (command === "nick") {
-      if (!rest) { systemLine("usage: /nick <name>"); return true; }
-      setNick(rest);
-      api("/api/nick", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nick: rest }),
-      }).catch(function () {});
-      systemLine("you are now " + rest);
-      return true;
-    }
-    if (command === "join") {
-      if (!rest) { systemLine("usage: /join <channel>"); return true; }
-      createChannel(rest).then(function (room) { openRoom(room); }).catch(function () {});
-      return true;
-    }
-    if (command === "me") {
-      postMessage("* " + myName() + " " + rest);
-      return true;
-    }
-    if (command === "help") {
-      systemLine("/nick <name> · /join <channel> · /me <action>");
-      return true;
-    }
-    systemLine("unknown command: /" + command);
-    return true;
-  }
-
-  function send() {
-    var text = textInput.value.trim();
-    if (!text || !currentRoom) return;
-    if (handleCommand(text)) { textInput.value = ""; return; }
-    postMessage(text);
-  }
-
-  sendButton.addEventListener("click", send);
-  textInput.addEventListener("keydown", function (event) {
-    if (event.key === "Enter") send();
-  });
-
-  // --- Direct peer-to-peer messaging ---
-  //
-  // The host relays a few signalling messages, then peers talk straight to
-  // each other over a WebRTC data channel. Messages still go through the host
-  // as well, so everyone (IRC clients included) sees them and history is
-  // kept — the direct path is what makes delivery immediate, and what works
-  // between two devices that could never accept each other's connections.
-
-  var peers = null;
-  if (typeof RTCPeerConnection !== "undefined" && typeof QRCPeers !== "undefined") {
-    peers = new QRCPeers({
-      selfId: clientId,
-      api: api,
-      onStatus: function (count) {
-        p2pBadge.classList.toggle("hidden", count === 0);
-        p2pBadge.textContent = count === 1 ? "direct" : "direct ×" + count;
-      },
-      onMessage: function (message) {
-        if (!currentRoom) return;
-        addMessage({
-          id: -1, name: message.name, text: message.text,
-          cid: message.cid, ts: message.ts,
-        });
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-      },
-    });
-  }
 
   // --- Signed app propagation ---
   //
@@ -906,7 +563,7 @@
   // bootstrapping (handing the app to someone who has nothing), and settings.
 
   var pages = {
-    servers: viewServers,
+    groups: viewGroups,
     pairing: $("view-pairing"),
     bootstrap: $("view-bootstrap"),
     settings: $("view-settings"),
@@ -916,12 +573,11 @@
     Object.keys(pages).forEach(function (key) {
       if (pages[key]) pages[key].classList.toggle("hidden", key !== name);
     });
-    viewChannels.classList.add("hidden");
-    viewChat.classList.add("hidden");
+    if (viewGroup) viewGroup.classList.add("hidden");
     drawer.classList.remove("visible");
     level = name;
     if (push !== false) history.pushState({ level: name }, "", "#" + name);
-    if (name === "servers") pollServers();
+    if (name === "groups") renderGroups();
     if (name === "bootstrap") showBootstrap();
     if (name === "settings") { loadSettings(); loadDNS(); }
   }
@@ -1107,125 +763,41 @@
       });
   }
 
-  // The peer link carries IRC, not a bespoke chat protocol. Whoever issued
-  // the invitation runs the server; whoever accepted it connects as a client.
-  // Same protocol as the native hosts speak over TCP — only the transport
-  // differs — so a browser can host a network with no inbound connectivity.
-  var ircServer = null;
-  var ircClient = null;
-  var pairRole = $("pair-role");
+  // A connected peer is just a peer. Both ends run the same code: adopt the
+  // data channel, reconcile every shared group, and carry on. Neither side
+  // hosts anything.
 
-  function showPairChat(roleLabel) {
-    pairSend.classList.add("hidden");
-    pairReceive.classList.add("hidden");
-    document.querySelector("#view-pairing .tabs").classList.add("hidden");
-    pairMessages.classList.remove("hidden");
-    pairFooter.classList.remove("hidden");
-    pairRole.textContent = roleLabel;
-    pairRole.classList.remove("hidden");
-    stopCamera();
-  }
-
-  /// Everyone we can encrypt to, other than ourselves.
-  function currentRoster() {
-    var roster = ircServer ? ircServer.roster : (ircClient ? ircClient.roster : {});
-    var recipients = [];
-    for (var nick in roster) {
-      if (nick !== myName() && roster[nick]) recipients.push({ nick: nick, jwk: roster[nick] });
-    }
-    return recipients;
-  }
-
-  function updateEncryptionBadge() {
-    var on = identity && currentRoster().length > 0;
-    $("pair-e2ee").classList.toggle("hidden", !on);
-  }
-
-  /// Decrypts if the body is sealed, otherwise shows it as-is.
-  function receiveMessage(nick, text) {
-    var envelope = QRCCrypto.decode(text);
-    if (!envelope || !identity) {
-      pairLine(nick, text, false);
-      return;
-    }
-    QRCCrypto.open(identity, myName(), envelope)
-      .then(function (plain) { pairLine(nick + " \ud83d\udd12", plain, false); })
-      .catch(function () { pairLine(nick, "[encrypted — not addressed to you]", false); });
-  }
-
-  /// What a joining peer is told about the network on arrival.
-  function networkInfo() {
-    return {
-      bootstrappers: knownBootstrappers(),
-      host: myName(),
-      channels: ircServer ? Object.keys(ircServer.channels) : ["#general"],
-    };
-  }
-
-  function startAsServer(channel) {
-    ircServer = new QRCIRC.Server({
-      serverName: myName() + "-host",
-      hostNick: myName(),
-      identityKey: identity ? identity.publicJWK : null,
-      networkInfo: networkInfo,
-      onEvent: function (event) {
-        if (event.type === "message") {
-          receiveMessage(event.nick, event.text);
-        } else if (event.type === "key") {
-          updateEncryptionBadge();
-        } else if (event.type === "join") {
-          pairLine("", event.nick + " joined " + event.channel, false);
-        } else if (event.type === "registered") {
-          pairLine("", event.nick + " connected to your server", false);
-        } else if (event.type === "disconnected" && event.nick) {
-          pairLine("", event.nick + " left", false);
-        }
-      },
+  function attachPeer(channel) {
+    net.name = myName();
+    var promise = net.identity ? Promise.resolve() : net.start(identity);
+    promise.then(function () {
+      net.addLink(channel, "paired peer");
+      pairState.textContent = "connected — syncing";
+      showPairChat();
+      // Pairing with someone you have no group with creates the direct
+      // message that pairing is for.
+      var known = Object.keys(net.groups).some(function (id) {
+        return net.groups[id].isDirect();
+      });
+      if (pendingInviteGroup) {
+        var group = pendingInviteGroup;
+        pendingInviteGroup = null;
+        pairLine("", "they can now be added to " + group.title(net.memberId), false);
+      } else if (!known) {
+        pairLine("", "connected. Open Groups to start a conversation.", false);
+      }
     });
-    ircServer.hostNick = myName();
-    ircServer.accept(channel, "paired peer");
-    showPairChat("serving");
-    pairLine("", "you are hosting an IRC server over this peer link", false);
   }
 
-  function startAsClient(channel) {
-    ircClient = new QRCIRC.Client({
-      nick: myName(),
-      identityKey: identity ? identity.publicJWK : null,
-      onEvent: function (event) {
-        if (event.type === "message") {
-          receiveMessage(event.nick, event.text);
-        } else if (event.type === "roster" || event.type === "key") {
-          updateEncryptionBadge();
-        } else if (event.type === "registered") {
-          pairLine("", event.text, false);
-        } else if (event.type === "join" && event.nick !== myName()) {
-          pairLine("", event.nick + " joined " + event.channel, false);
-        } else if (event.type === "network") {
-          // Learn the network from whoever let us in.
-          (event.info.bootstrappers || []).forEach(rememberBootstrapper);
-          pairLine("", "joined " + (event.info.host || "a peer") + "'s network", false);
-        }
-      },
-    });
-    ircClient.attach(channel);
-    showPairChat("client");
-  }
-
-  function newSession(asServer) {
+  function newSession() {
     if (session) session.close();
-    ircServer = null;
-    ircClient = null;
     session = new QRCDirect({
       name: myName(),
       onState: function (state) {
         pairState.textContent = state;
-        if (state === "connected" && session.channel) {
-          if (asServer) startAsServer(session.channel);
-          else startAsClient(session.channel);
-        }
+        if (state === "connected" && session.channel) attachPeer(session.channel);
       },
-      onMessage: function () { /* IRC framing handles the data channel now */ },
+      onMessage: function () { /* the sync protocol owns the channel */ },
     });
     return session;
   }
@@ -1244,7 +816,7 @@
     pairState.textContent = "preparing your identity…";
     ensureIdentity().then(function () {
     pairState.textContent = "gathering…";
-    return newSession(true).createInvite()
+    return newSession().createInvite()
       .then(function (blob) {
         awaitingReply = true;
         inviteURL = pairingLink("o", blob);
@@ -1280,7 +852,7 @@
     }
     pairState.textContent = "answering…";
     ensureIdentity().then(function () {
-    return newSession(false).acceptInvite(blob)
+    return newSession().acceptInvite(blob)
       .then(function (answerBlob) {
         answerURL = pairingLink("a", answerBlob);
         pairAnswerOut.classList.remove("hidden");
@@ -1430,15 +1002,19 @@
       .catch(function () { /* passkey-wrapped: unlocks on the next pairing */ });
   }
 
-  history.replaceState({ level: "servers" }, "", location.pathname);
-  setInterval(function () {
-    if (level === "chat") {
-      pollRoom();
-    } else if (level === "channels") {
-      pollChannels();
-    } else {
-      pollServers();
-    }
-  }, 1500);
-  pollServers();
+  // Bring up the local identity and stored history straight away: a member
+  // should see their groups without needing anyone else to be online.
+  if (window.QRCCrypto && localStorage.getItem("qrc-identity")) {
+    QRCCrypto.loadIdentity({ interactive: false })
+      .then(function (loaded) {
+        identity = loaded;
+        showIdentity();
+        return net.start(identity);
+      })
+      .then(function () { renderGroups(); })
+      .catch(function () { /* passkey-wrapped: unlocks on the next pairing */ });
+  }
+
+  history.replaceState({ level: "groups" }, "", location.pathname);
+  goTo("groups", false);
 })();

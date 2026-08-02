@@ -9,25 +9,25 @@
 <body>
 
 <!-- Level 1: servers -->
-<div id="view-servers" class="view">
+<div id="view-groups" class="view">
   <header>
     <div class="brand">
       <button id="menu-toggle" title="Network settings">☰</button>
-      <h1>Servers</h1>
+      <h1>Groups</h1>
       <span class="dot" id="status-dot"></span>
     </div>
     <span id="peer-count">–</span>
   </header>
 
   <aside id="drawer">
-    <button class="nav-item" data-view="servers">Servers</button>
+    <button class="nav-item" data-view="groups">Groups</button>
     <button class="nav-item" data-view="pairing">Pairing</button>
     <button class="nav-item" data-view="bootstrap">Bootstrapping</button>
     <button class="nav-item" data-view="settings">Settings</button>
   </aside>
 
-  <main id="servers"></main>
-  <button id="add-server" title="Join another server">+</button>
+  <main id="groups"></main>
+  <button id="new-group" title="New group">+</button>
 </div>
 
 <!-- Settings -->
@@ -111,7 +111,7 @@
       <h1>Pairing</h1>
     </div>
     <span id="pair-e2ee" class="badge lock hidden" title="end-to-end encrypted">🔒</span>
-    <span id="pair-role" class="badge lock hidden"></span>
+    
     <span id="pair-state" class="sub"></span>
   </header>
 
@@ -163,75 +163,33 @@
   </footer>
 </div>
 
-<!-- Level 2: channels of one server -->
-<div id="view-channels" class="view hidden">
+<!-- A group conversation -->
+<div id="view-group" class="view hidden">
   <header>
     <div class="brand">
-      <button id="channels-back" title="All servers">←</button>
-      <h1 id="server-title"></h1>
+      <button class="back-button" title="All groups">←</button>
+      <h1 id="group-title"></h1>
     </div>
     <div class="header-right">
-      <button id="share-toggle" title="Share this server">QR</button>
-      <span id="server-peers"></span>
+      <span id="group-epoch" class="badge lock" title="MLS epoch"></span>
+      <span id="group-online" class="sub"></span>
     </div>
   </header>
-
-  <section id="share-panel">
-    <img id="qr-image" alt="QR code — the address of this server" title="Tap to copy the link. Press and hold to save or share the image.">
-    <p class="hint">Scan to join · tap to copy link · hold to share the image</p>
-    <code id="join-url"></code>
-    <span id="copy-toast">link copied</span>
-    <div id="irc-details"></div>
-  </section>
-
-  <main id="channels"></main>
-  <button id="add-channel" title="New channel">+</button>
-</div>
-
-<!-- Level 3: chat -->
-<div id="view-chat" class="view hidden">
-  <header>
-    <div class="brand">
-      <button id="chat-back" title="Back to channels">←</button>
-      <h1 id="room-title"></h1>
-    </div>
-    <span id="room-peers"></span>
-      <span id="p2p-badge" class="badge lock hidden">direct</span>
-  </header>
-  <main id="messages" aria-live="polite"></main>
+  <main id="group-messages"></main>
   <footer>
-    <input id="text" type="text" placeholder="message… (/nick to rename)" maxlength="2000" autocomplete="off">
-    <button id="send">Send</button>
+    <input id="group-text" type="text" placeholder="message…  (/nick, /invite, /leave)" maxlength="2000" autocomplete="off">
+    <button id="group-send">Send</button>
   </footer>
 </div>
 
-<!-- Join-a-server sheet -->
-<div id="join-sheet" class="hidden">
-  <div class="sheet-card">
-    <h2>Join a server</h2>
-    <p class="sub">Paste a QRC link and everything fills in — or enter an IRC server by hand.</p>
-    <input id="join-paste" type="text" placeholder="paste link, or host address" autocomplete="off" autocapitalize="off" spellcheck="false">
-    <div class="row-fields">
-      <input id="join-port" type="text" inputmode="numeric" placeholder="6667" autocomplete="off">
-      <input id="join-key" type="text" placeholder="room key (optional)" autocomplete="off" autocapitalize="off" spellcheck="false">
-    </div>
-    <div class="setting">
-      <label for="join-tls">Encrypted (TLS)</label>
-      <input type="checkbox" id="join-tls">
-    </div>
-    <p id="join-tls-note" class="sub">plaintext</p>
-    <div class="sheet-actions">
-      <button id="join-cancel" class="ghost">Cancel</button>
-      <button id="join-confirm">Join</button>
-    </div>
-  </div>
-</div>
-
 <script src="qrcode.js?v=18ae399f"></script>
-<script src="p2p.js?v=fc9f80b3"></script>
 <script src="direct.js?v=c8b7a551"></script>
 <script src="crypto.js?v=47b44519"></script>
-<script src="irc.js?v=0f526cc7"></script>
-<script src="app.js?v=c2643d52"></script>
+<script src="model.js?v=638f84ac"></script>
+<script src="sync.js?v=13214834"></script>
+<script src="group_crypto.js?v=2f984da0"></script>
+<script src="store.js?v=5d6480e2"></script>
+<script src="net.js?v=ce677452"></script>
+<script src="app.js?v=80b5a63e"></script>
 </body>
 </html>
