@@ -1056,25 +1056,91 @@
     pairMessages.scrollTop = pairMessages.scrollHeight;
   }
 
-  function newSession() {
+  // The peer link carries IRC, not a bespoke chat protocol. Whoever issued
+  // the invitation runs the server; whoever accepted it connects as a client.
+  // Same protocol as the native hosts speak over TCP — only the transport
+  // differs — so a browser can host a network with no inbound connectivity.
+  var ircServer = null;
+  var ircClient = null;
+  var pairRole = $("pair-role");
+
+  function showPairChat(roleLabel) {
+    pairSend.classList.add("hidden");
+    pairReceive.classList.add("hidden");
+    document.querySelector("#view-pairing .tabs").classList.add("hidden");
+    pairMessages.classList.remove("hidden");
+    pairFooter.classList.remove("hidden");
+    pairRole.textContent = roleLabel;
+    pairRole.classList.remove("hidden");
+    stopCamera();
+  }
+
+  /// What a joining peer is told about the network on arrival.
+  function networkInfo() {
+    return {
+      bootstrappers: knownBootstrappers(),
+      host: myName(),
+      channels: ircServer ? Object.keys(ircServer.channels) : ["#general"],
+    };
+  }
+
+  function startAsServer(channel) {
+    ircServer = new QRCIRC.Server({
+      serverName: myName() + "-host",
+      networkInfo: networkInfo,
+      onEvent: function (event) {
+        if (event.type === "message") {
+          pairLine(event.nick, event.text, false);
+        } else if (event.type === "join") {
+          pairLine("", event.nick + " joined " + event.channel, false);
+        } else if (event.type === "registered") {
+          pairLine("", event.nick + " connected to your server", false);
+        } else if (event.type === "disconnected" && event.nick) {
+          pairLine("", event.nick + " left", false);
+        }
+      },
+    });
+    ircServer.hostNick = myName();
+    ircServer.accept(channel, "paired peer");
+    showPairChat("serving");
+    pairLine("", "you are hosting an IRC server over this peer link", false);
+  }
+
+  function startAsClient(channel) {
+    ircClient = new QRCIRC.Client({
+      nick: myName(),
+      onEvent: function (event) {
+        if (event.type === "message") {
+          pairLine(event.nick, event.text, false);
+        } else if (event.type === "registered") {
+          pairLine("", event.text, false);
+        } else if (event.type === "join" && event.nick !== myName()) {
+          pairLine("", event.nick + " joined " + event.channel, false);
+        } else if (event.type === "network") {
+          // Learn the network from whoever let us in.
+          (event.info.bootstrappers || []).forEach(rememberBootstrapper);
+          pairLine("", "joined " + (event.info.host || "a peer") + "'s network", false);
+        }
+      },
+    });
+    ircClient.attach(channel);
+    showPairChat("client");
+  }
+
+  function newSession(asServer) {
     if (session) session.close();
+    ircServer = null;
+    ircClient = null;
     session = new QRCDirect({
       name: myName(),
       onState: function (state) {
         pairState.textContent = state;
-        if (state === "connected") {
-          pairSend.classList.add("hidden");
-          pairReceive.classList.add("hidden");
-          document.querySelector("#view-pairing .tabs").classList.add("hidden");
-          pairMessages.classList.remove("hidden");
-          pairFooter.classList.remove("hidden");
-          stopCamera();
-          pairLine("", "connected directly — nothing in between", false);
+        if (state === "connected" && session.channel) {
+          if (asServer) startAsServer(session.channel);
+          else startAsClient(session.channel);
         }
       },
-      onMessage: function (message) {
-        pairLine(message.name || "peer", message.text, false);
-      },
+      onMessage: function () { /* IRC framing handles the data channel now */ },
     });
     return session;
   }
@@ -1091,7 +1157,7 @@
   pairCreate.addEventListener("click", function () {
     pairCreate.disabled = true;
     pairState.textContent = "gathering…";
-    newSession().createInvite()
+    newSession(true).createInvite()
       .then(function (blob) {
         awaitingReply = true;
         inviteURL = pairingLink("o", blob);
@@ -1125,7 +1191,7 @@
       return;
     }
     pairState.textContent = "answering…";
-    newSession().acceptInvite(blob)
+    newSession(false).acceptInvite(blob)
       .then(function (answerBlob) {
         answerURL = pairingLink("a", answerBlob);
         pairAnswerOut.classList.remove("hidden");
@@ -1191,20 +1257,35 @@
 
   function sendPairMessage() {
     var text = pairText.value.trim();
-    if (!text || !session) return;
+    if (!text) return;
     if (text.indexOf("/nick ") === 0) {
       var nick = text.slice(6).trim();
       if (nick) {
         setNick(nick);
+        if (ircClient) ircClient.setNick(nick);
+        if (ircServer) ircServer.hostNick = nick;
         pairLine("", "you are now " + nick, false);
       }
       pairText.value = "";
       return;
     }
-    if (session.send(text)) {
-      pairLine(myName(), text, true);
+    if (text.indexOf("/join ") === 0) {
+      var channelName = text.slice(6).trim().replace(/^#?/, "#");
+      if (ircClient) ircClient.join(channelName);
+      if (ircServer) ircServer.ensureChannel(channelName);
+      pairLine("", "now in " + channelName, false);
       pairText.value = "";
+      return;
     }
+    if (ircServer) {
+      ircServer.say("#general", myName(), text);
+    } else if (ircClient) {
+      ircClient.say(text);
+    } else {
+      return;
+    }
+    pairLine(myName(), text, true);
+    pairText.value = "";
   }
   pairSendMessage.addEventListener("click", sendPairMessage);
   pairText.addEventListener("keydown", function (event) {
