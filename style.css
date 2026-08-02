@@ -331,7 +331,7 @@ footer input {
   text-decoration: underline;
 }
 
-#add-server, #add-channel {
+#new-group, #add-channel {
   position: fixed;
   right: 18px;
   bottom: calc(18px + env(safe-area-inset-bottom));
@@ -434,7 +434,7 @@ footer input {
   font-size: 0.85rem;
   line-height: 1.45;
 }
-#menu-toggle:disabled, #add-server:disabled { opacity: 0.4; }
+#menu-toggle:disabled, #new-group:disabled { opacity: 0.4; }
 
 .divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
 #dns-fields { display: flex; flex-direction: column; gap: 6px; }
@@ -556,3 +556,8 @@ footer input {
   background: var(--text); color: var(--bg);
   padding: 9px 18px; border-radius: 16px; font-size: 0.9rem; z-index: 30;
 }
+
+#groups { flex: 1; overflow-y: auto; }
+#group-messages { flex: 1; overflow-y: auto; padding: 14px;
+                  display: flex; flex-direction: column; gap: 8px; }
+#group-epoch { background: var(--muted); }
