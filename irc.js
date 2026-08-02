@@ -362,16 +362,6 @@
       case "PING":
         this.send({ command: "PONG", params: message.params });
         break;
-      // Clients announce their public key on arrival; the server fans the
-      // roster back out so everyone can seal messages for everyone else.
-      case "QRCKEY":
-        try {
-          client.publicKey = JSON.parse(message.params[0]);
-          this.roster[client.nick] = client.publicKey;
-          this.publishRoster();
-          this.onEvent({ type: "key", nick: client.nick });
-        } catch (e) { /* ignore malformed keys */ }
-        break;
 
       case "PRIVMSG":
         this.onEvent({
