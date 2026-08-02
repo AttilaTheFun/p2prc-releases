@@ -1056,6 +1056,50 @@
     pairMessages.scrollTop = pairMessages.scrollHeight;
   }
 
+  // --- Identity and end-to-end encryption ---------------------------------
+  //
+  // Every device has a long-lived ECDH keypair. Where the platform supports
+  // it, the private half is encrypted at rest with a secret derived from a
+  // passkey, so it sits behind the keychain and Face ID rather than in plain
+  // local storage.
+  //
+  // Public keys travel with pairing and are then republished by whoever is
+  // acting as server, so every member can seal messages for every other
+  // member. The server relays ciphertext and holds only public halves — it
+  // cannot read what it forwards.
+
+  var identity = null;
+
+  function showIdentity() {
+    var fingerprintEl = $("identity-fingerprint");
+    var backingEl = $("identity-backing");
+    if (!fingerprintEl) return;
+    if (!identity) {
+      fingerprintEl.textContent = "not created yet";
+      return;
+    }
+    fingerprintEl.textContent = identity.fingerprint;
+    backingEl.textContent = identity.passkeyBacked
+      ? "· protected by a passkey"
+      : "· stored on this device";
+  }
+
+  /// Called from a user gesture (creating or accepting an invitation), which
+  /// is what lets us prompt for a passkey.
+  function ensureIdentity() {
+    if (identity) return Promise.resolve(identity);
+    return QRCCrypto.loadIdentity({ interactive: true, name: myName() })
+      .then(function (loaded) {
+        identity = loaded;
+        showIdentity();
+        return identity;
+      })
+      .catch(function (error) {
+        pairState.textContent = "identity unavailable: " + error.message;
+        return null;
+      });
+  }
+
   // The peer link carries IRC, not a bespoke chat protocol. Whoever issued
   // the invitation runs the server; whoever accepted it connects as a client.
   // Same protocol as the native hosts speak over TCP — only the transport
@@ -1075,6 +1119,33 @@
     stopCamera();
   }
 
+  /// Everyone we can encrypt to, other than ourselves.
+  function currentRoster() {
+    var roster = ircServer ? ircServer.roster : (ircClient ? ircClient.roster : {});
+    var recipients = [];
+    for (var nick in roster) {
+      if (nick !== myName() && roster[nick]) recipients.push({ nick: nick, jwk: roster[nick] });
+    }
+    return recipients;
+  }
+
+  function updateEncryptionBadge() {
+    var on = identity && currentRoster().length > 0;
+    $("pair-e2ee").classList.toggle("hidden", !on);
+  }
+
+  /// Decrypts if the body is sealed, otherwise shows it as-is.
+  function receiveMessage(nick, text) {
+    var envelope = QRCCrypto.decode(text);
+    if (!envelope || !identity) {
+      pairLine(nick, text, false);
+      return;
+    }
+    QRCCrypto.open(identity, myName(), envelope)
+      .then(function (plain) { pairLine(nick + " \ud83d\udd12", plain, false); })
+      .catch(function () { pairLine(nick, "[encrypted — not addressed to you]", false); });
+  }
+
   /// What a joining peer is told about the network on arrival.
   function networkInfo() {
     return {
@@ -1087,10 +1158,14 @@
   function startAsServer(channel) {
     ircServer = new QRCIRC.Server({
       serverName: myName() + "-host",
+      hostNick: myName(),
+      identityKey: identity ? identity.publicJWK : null,
       networkInfo: networkInfo,
       onEvent: function (event) {
         if (event.type === "message") {
-          pairLine(event.nick, event.text, false);
+          receiveMessage(event.nick, event.text);
+        } else if (event.type === "key") {
+          updateEncryptionBadge();
         } else if (event.type === "join") {
           pairLine("", event.nick + " joined " + event.channel, false);
         } else if (event.type === "registered") {
@@ -1109,9 +1184,12 @@
   function startAsClient(channel) {
     ircClient = new QRCIRC.Client({
       nick: myName(),
+      identityKey: identity ? identity.publicJWK : null,
       onEvent: function (event) {
         if (event.type === "message") {
-          pairLine(event.nick, event.text, false);
+          receiveMessage(event.nick, event.text);
+        } else if (event.type === "roster" || event.type === "key") {
+          updateEncryptionBadge();
         } else if (event.type === "registered") {
           pairLine("", event.text, false);
         } else if (event.type === "join" && event.nick !== myName()) {
@@ -1156,8 +1234,10 @@
 
   pairCreate.addEventListener("click", function () {
     pairCreate.disabled = true;
+    pairState.textContent = "preparing your identity…";
+    ensureIdentity().then(function () {
     pairState.textContent = "gathering…";
-    newSession(true).createInvite()
+    return newSession(true).createInvite()
       .then(function (blob) {
         awaitingReply = true;
         inviteURL = pairingLink("o", blob);
@@ -1168,6 +1248,7 @@
       })
       .catch(function (error) { pairState.textContent = "failed: " + error; })
       .finally(function () { pairCreate.disabled = false; });
+    });
   });
 
   $("pair-download").addEventListener("click", function () { downloadQR(pairQR, "qrc-invite.png"); });
@@ -1191,7 +1272,8 @@
       return;
     }
     pairState.textContent = "answering…";
-    newSession(false).acceptInvite(blob)
+    ensureIdentity().then(function () {
+    return newSession(false).acceptInvite(blob)
       .then(function (answerBlob) {
         answerURL = pairingLink("a", answerBlob);
         pairAnswerOut.classList.remove("hidden");
@@ -1202,6 +1284,7 @@
       .catch(function (error) {
         pairState.textContent = "that didn't parse: " + error;
       });
+    });
   }
 
   pairAccept.addEventListener("click", function () { acceptBlob(pairInput.value); });
@@ -1277,14 +1360,22 @@
       pairText.value = "";
       return;
     }
-    if (ircServer) {
-      ircServer.say("#general", myName(), text);
-    } else if (ircClient) {
-      ircClient.say(text);
+    var recipients = currentRoster();
+    var deliver = function (body) {
+      if (ircServer) ircServer.say("#general", myName(), body);
+      else if (ircClient) ircClient.say(body);
+    };
+    if (identity && recipients.length) {
+      // Seal once for everyone present; the relay forwards bytes it can't read.
+      QRCCrypto.seal(identity, recipients, text)
+        .then(function (envelope) { deliver(QRCCrypto.encode(envelope)); })
+        .catch(function () { deliver(text); });
+      pairLine(myName() + " \ud83d\udd12", text, true);
     } else {
-      return;
+      if (!ircServer && !ircClient) return;
+      deliver(text);
+      pairLine(myName(), text, true);
     }
-    pairLine(myName(), text, true);
     pairText.value = "";
   }
   pairSendMessage.addEventListener("click", sendPairMessage);
@@ -1324,6 +1415,13 @@
   })();
 
   // --- Main loop ---
+
+  // Pick up an existing identity quietly; creating one needs a gesture.
+  if (window.QRCCrypto && localStorage.getItem("qrc-identity")) {
+    QRCCrypto.loadIdentity({ interactive: false })
+      .then(function (loaded) { identity = loaded; showIdentity(); })
+      .catch(function () { /* passkey-wrapped: unlocks on the next pairing */ });
+  }
 
   history.replaceState({ level: "servers" }, "", location.pathname);
   setInterval(function () {

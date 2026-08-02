@@ -110,6 +110,7 @@
       <button class="back-button" title="Back">←</button>
       <h1>Pairing</h1>
     </div>
+    <span id="pair-e2ee" class="badge lock hidden" title="end-to-end encrypted">🔒</span>
     <span id="pair-role" class="badge lock hidden"></span>
     <span id="pair-state" class="sub"></span>
   </header>
@@ -122,6 +123,8 @@
   <main class="page code-page" id="pair-send">
     <p class="sub">Show this to the person you want to talk to, or send them
     the link. It connects the two browsers directly.</p>
+    <p class="sub">Your identity: <code id="identity-fingerprint">…</code>
+    <span id="identity-backing"></span></p>
     <button id="pair-create">Create an invitation</button>
     <div id="pair-send-out" class="hidden">
       <div class="code-row">
@@ -227,6 +230,7 @@
 <script src="qrcode.js"></script>
 <script src="p2p.js"></script>
 <script src="direct.js"></script>
+<script src="crypto.js"></script>
 <script src="irc.js"></script>
 <script src="app.js"></script>
 </body>

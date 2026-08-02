@@ -84,6 +84,11 @@
     this.clients = [];
     this.channels = {};      // name -> {topic, history: []}
     this.nextId = 1;
+    /// nick -> public key JWK. The server relays these but, holding only
+    /// public halves, can never read the traffic they protect.
+    this.roster = {};
+    this.identityKey = options.identityKey || null;
+    this.hostNick = options.hostNick || "host";
     this.ensureChannel("#general");
   }
 
@@ -207,6 +212,17 @@
         });
         break;
 
+      // Clients announce their public key on arrival; the server fans the
+      // roster back out so everyone can seal messages for everyone else.
+      case "QRCKEY":
+        try {
+          client.publicKey = JSON.parse(message.params[0]);
+          this.roster[client.nick] = client.publicKey;
+          this.publishRoster();
+          this.onEvent({ type: "key", nick: client.nick });
+        } catch (e) { /* ignore malformed keys */ }
+        break;
+
       case "PRIVMSG":
         var target = message.params[0];
         var text = message.params[1] || "";
@@ -241,6 +257,22 @@
     }
   };
 
+  /// Sends the current roster to every registered client.
+  IRCServer.prototype.publishRoster = function () {
+    var roster = {};
+    for (var nick in this.roster) roster[nick] = this.roster[nick];
+    if (this.identityKey) roster[this.hostNick] = this.identityKey;
+    var payload = JSON.stringify(roster);
+    for (var i = 0; i < this.clients.length; i++) {
+      if (!this.clients[i].registered) continue;
+      this.write(this.clients[i], {
+        prefix: this.name,
+        command: "NOTICE",
+        params: [this.clients[i].nick, "QRCROSTER " + payload],
+      });
+    }
+  };
+
   IRCServer.prototype.register = function (client) {
     if (client.registered || !client.nick || !client.user) return;
     client.registered = true;
@@ -260,6 +292,14 @@
       command: "NOTICE",
       params: [client.nick, "QRCNET " + JSON.stringify(info)],
     });
+    if (this.identityKey) {
+      this.write(client, {
+        prefix: this.name,
+        command: "QRCKEY",
+        params: [JSON.stringify(this.identityKey)],
+      });
+    }
+    this.publishRoster();
     this.onEvent({ type: "registered", nick: client.nick });
   };
 
@@ -273,6 +313,8 @@
     this.channel = null;
     this.current = "#general";
     this.registered = false;
+    this.identityKey = options.identityKey || null;
+    this.roster = {};
   }
 
   IRCClient.prototype.attach = function (dataChannel) {
@@ -285,6 +327,9 @@
     dataChannel.onmessage = function (event) { framer.push(event.data); };
     this.send({ command: "NICK", params: [this.nick] });
     this.send({ command: "USER", params: [this.nick, "0", "*", "QRC"] });
+    if (this.identityKey) {
+      this.send({ command: "QRCKEY", params: [JSON.stringify(this.identityKey)] });
+    }
   };
 
   IRCClient.prototype.send = function (message) {
@@ -317,6 +362,17 @@
       case "PING":
         this.send({ command: "PONG", params: message.params });
         break;
+      // Clients announce their public key on arrival; the server fans the
+      // roster back out so everyone can seal messages for everyone else.
+      case "QRCKEY":
+        try {
+          client.publicKey = JSON.parse(message.params[0]);
+          this.roster[client.nick] = client.publicKey;
+          this.publishRoster();
+          this.onEvent({ type: "key", nick: client.nick });
+        } catch (e) { /* ignore malformed keys */ }
+        break;
+
       case "PRIVMSG":
         this.onEvent({
           type: "message", channel: message.params[0], nick: nick, text: message.params[1],
@@ -329,8 +385,22 @@
       case "QUIT":
         this.onEvent({ type: "part", nick: nick, channel: message.params[0] });
         break;
+      case "QRCKEY":
+        try {
+          this.roster[nick] = JSON.parse(message.params[0]);
+          this.onEvent({ type: "key", nick: nick, roster: this.roster });
+        } catch (e) {}
+        break;
+
       case "NOTICE":
         var text = message.params[1] || "";
+        if (text.indexOf("QRCROSTER ") === 0) {
+          try {
+            this.roster = JSON.parse(text.slice(10));
+            this.onEvent({ type: "roster", roster: this.roster });
+          } catch (e) {}
+          break;
+        }
         if (text.indexOf("QRCNET ") === 0) {
           // The network the server knows about, handed over on registration.
           try {
