@@ -68,16 +68,20 @@
   }
 
   /// Trims SDP to what a data channel actually needs — smaller QR, easier scan.
+  ///
+  /// SDP must end with a trailing CRLF: dropping the final empty line leaves
+  /// the last attribute unterminated, and strict parsers reject the whole
+  /// description ("Invalid SDP line").
   function slim(sdp) {
-    return sdp
+    var kept = sdp
       .split("\r\n")
       .filter(function (line) {
-        // Drop candidates that can't help: host-only IPv6 link-local and TCP
-        // candidates roughly double the payload for little benefit.
+        // TCP candidates roughly double the payload and rarely help a data
+        // channel, so drop them.
         if (line.indexOf("a=candidate:") === 0 && line.indexOf(" tcp ") !== -1) return false;
         return line !== "";
-      })
-      .join("\r\n");
+      });
+    return kept.join("\r\n") + "\r\n";
   }
 
   /// Resolves once ICE has gathered everything, so the blob is self-contained
