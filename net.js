@@ -123,12 +123,17 @@
     if (!members.length) return Promise.resolve();
 
     var epoch = group.epoch + 1;
-    return this.groupKeys(group.id).rekey(members, epoch).then(function (result) {
+    var keys = this.groupKeys(group.id);
+    var prepared;
+    return keys.prepare(members).then(function (result) {
+      prepared = result;
       return QRCModel.makeEvent({
         group: group.id, author: self.memberId, kind: "rekey",
         parents: group.graph.heads(), body: { epoch: epoch, welcome: result.welcome },
       });
     }).then(function (event) {
+      // The event's id *is* the key context, so concurrent rekeys coexist.
+      keys.remember(event.id, prepared.secret, epoch);
       group.graph.add(event);
       group.epoch = epoch;
       self.broadcast(event);
@@ -170,9 +175,7 @@
   Net.prototype.send = function (group, text) {
     var self = this;
     var keys = this.groupKeys(group.id);
-    var sealed = keys.canRead(keys.epoch)
-      ? keys.encrypt(text)
-      : Promise.resolve(null);
+    var sealed = keys.canSend() ? keys.encrypt(text) : Promise.resolve(null);
 
     return sealed.then(function (envelope) {
       return QRCModel.makeEvent({
@@ -199,7 +202,7 @@
     // Take in any epochs shared with us before reading the messages.
     var rekeys = group.graph.ordered().filter(function (event) { return event.kind === "rekey"; });
     var adopting = rekeys.map(function (event) {
-      return keys.adopt(event.body.epoch, event.body.welcome);
+      return keys.adopt(event.id, event.body.welcome, event.body.epoch);
     });
 
     return Promise.all(adopting).then(function () {

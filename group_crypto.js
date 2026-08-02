@@ -161,46 +161,65 @@
   function GroupKeys(identity, memberId) {
     this.identity = identity;
     this.memberId = memberId;
-    this.epochs = {};       // epoch number -> Uint8Array secret
-    this.epoch = -1;
+    // Keyed by the id of the rekey *event*, not by an epoch number. Two
+    // members can rekey at the same moment — in a graph with no central
+    // authority that is normal, not an error — and numbering by integer would
+    // make their different secrets collide. Event ids never collide, so both
+    // key contexts simply coexist and everyone can read either.
+    this.secrets = {};      // rekey event id -> Uint8Array
+    this.rank = {};         // rekey event id -> epoch number, for choosing
+    this.currentId = null;
     this.counter = 0;
   }
 
-  /// Starts a new epoch and produces the welcome to publish as an event.
-  GroupKeys.prototype.rekey = function (members, epoch) {
-    var self = this;
+  /// Produces a secret and the welcome that shares it. The caller stores it
+  /// once the rekey event exists and its id is known.
+  GroupKeys.prototype.prepare = function (members) {
     var secret = random(32);
     return sealEpoch(this.identity, members, secret).then(function (welcome) {
-      self.epochs[epoch] = secret;
-      if (epoch > self.epoch) { self.epoch = epoch; self.counter = 0; }
-      return { epoch: epoch, welcome: welcome };
+      return { secret: secret, welcome: welcome };
     });
   };
 
-  /// Adopts an epoch someone else created, if it was shared with us.
-  GroupKeys.prototype.adopt = function (epoch, welcome) {
+  GroupKeys.prototype.remember = function (id, secret, epoch) {
+    this.secrets[id] = secret;
+    this.rank[id] = epoch || 0;
+    this.chooseCurrent();
+  };
+
+  /// Adopts a key context someone else created, if it was shared with us.
+  GroupKeys.prototype.adopt = function (id, welcome, epoch) {
     var self = this;
-    if (this.epochs[epoch]) return Promise.resolve(true);
+    if (this.secrets[id]) return Promise.resolve(true);
     return openEpoch(this.identity, this.memberId, welcome).then(function (secret) {
-      self.epochs[epoch] = secret;
-      if (epoch > self.epoch) { self.epoch = epoch; self.counter = 0; }
+      self.remember(id, secret, epoch);
       return true;
     }).catch(function () { return false; });
   };
 
-  GroupKeys.prototype.canRead = function (epoch) {
-    return !!this.epochs[epoch];
+  /// Newest wins; ties broken by id so every member picks the same one.
+  GroupKeys.prototype.chooseCurrent = function () {
+    var best = null;
+    for (var id in this.secrets) {
+      if (best === null) { best = id; continue; }
+      if (this.rank[id] > this.rank[best] || (this.rank[id] === this.rank[best] && id > best)) {
+        best = id;
+      }
+    }
+    if (best !== this.currentId) { this.currentId = best; this.counter = 0; }
   };
 
+  GroupKeys.prototype.canSend = function () { return !!this.currentId; };
+
   GroupKeys.prototype.encrypt = function (text) {
-    if (!this.epochs[this.epoch]) return Promise.reject(new Error("no epoch key"));
+    if (!this.currentId) return Promise.reject(new Error("no group key"));
     var counter = this.counter++;
-    return encryptMessage(this.epochs[this.epoch], this.epoch, this.memberId, counter, text);
+    return encryptMessage(this.secrets[this.currentId], this.currentId, this.memberId, counter, text);
   };
 
   GroupKeys.prototype.decrypt = function (envelope) {
-    var secret = this.epochs[envelope.e];
-    if (!secret) return Promise.reject(new Error("no key for epoch " + envelope.e));
+    var secret = this.secrets[envelope.e];
+    if (!secret) return Promise.reject(new Error("no key for this context"));
     return decryptMessage(secret, envelope);
   };
 
