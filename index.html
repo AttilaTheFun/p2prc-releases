@@ -55,7 +55,7 @@
       <label class="field-label" for="dns-token">Access token</label>
       <input id="dns-token" type="password" placeholder="kept on this device" autocomplete="off">
       <label class="field-label" for="dns-pem">Certificate + private key (PEM)</label>
-      <textarea id="dns-pem" rows="5" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----BEGIN PRIVATE KEY-----&#10;…"></textarea>
+      <textarea id="dns-pem" rows="5" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----BEGIN PRIVATE KEY-----&#10;…"></textarea>
       <button id="dns-apply">Save DNS settings</button>
       <p id="dns-status" class="sub"></p>
     </div>
@@ -135,7 +135,7 @@
       </div>
       <p id="bootstrap-note" class="sub"></p>
       <span class="field-label">2. Paste their reply here</span>
-      <textarea id="direct-reply" rows="3" placeholder="paste the reply link they send back"></textarea>
+      <textarea id="direct-reply" rows="3" placeholder="paste the reply link they send back" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
       <button id="direct-finish">Connect</button>
     </div>
 

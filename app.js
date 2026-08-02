@@ -1009,9 +1009,7 @@
   directShareAnswer.addEventListener("click", function () { shareOrCopy(answerLink, "QRC reply"); });
 
   directFinish.addEventListener("click", function () {
-    var text = directReply.value.trim();
-    var match = text.match(/#a=(.+)$/);
-    var blob = match ? match[1] : text;
+    var blob = directReply.value.trim();
     if (!blob || !session) return;
     directState.textContent = "connecting…";
     session.acceptReply(blob).catch(function (error) {

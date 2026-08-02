@@ -50,11 +50,21 @@
   }
 
   function unpack(blob) {
-    var kind = blob[0];
-    var bytes = fromBase64URL(blob.slice(1));
+    // Be forgiving about what arrives: blobs get pasted through keyboards that
+    // capitalise, mail clients that wrap lines, and links that carry a #a=
+    // prefix. Only the payload has to survive.
+    var clean = String(blob).trim().replace(/^.*#[ia]=/, "").replace(/\s+/g, "");
+    var kind = clean[0].toLowerCase();
+    var bytes = fromBase64URL(clean.slice(1));
     if (kind === "r") return Promise.resolve(new TextDecoder().decode(bytes));
+    if (typeof DecompressionStream === "undefined") {
+      return Promise.reject(new Error("this browser can't un-gzip; ask for an uncompressed reply"));
+    }
     var stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-    return new Response(stream).text();
+    return new Response(stream).text().catch(function () {
+      // Not gzip after all — treat it as plain text rather than failing.
+      return new TextDecoder().decode(bytes);
+    });
   }
 
   /// Trims SDP to what a data channel actually needs — smaller QR, easier scan.
