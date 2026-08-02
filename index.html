@@ -1,170 +1,192 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>P2PRC</title>
-<link rel="stylesheet" href="style.css?v=b3968a46">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>P2PRC</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #fff; }
+    #canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+    #error { font: 14px monospace; color: #b00; padding: 16px; white-space: pre-wrap; }
+    .qr { position: fixed; right: 16px; bottom: 16px; background: #fff; padding: 8px;
+          border: 1px solid #ddd; border-radius: 6px; }
+    .qr:empty { display: none; }
+  </style>
 </head>
 <body>
+  <canvas id="canvas"></canvas>
+  <div id="invite-qr" class="qr"></div>
+  <div id="answer-qr" class="qr"></div>
+  <script src="./runtime/react.production.min.js"></script>
+  <script src="./runtime/react-dom.production.min.js"></script>
+  <script src="./assets/qrcode.js"></script>
+  <script src="./assets/qr.js"></script>
+  <script type="module">
+    import { boot } from "./runtime/boot.js";
+    import { Dependencies } from "./app_bridge.js";
 
-<!-- Level 1: servers -->
-<div id="view-groups" class="view">
-  <header>
-    <div class="brand">
-      <button id="menu-toggle" title="Network settings">☰</button>
-      <h1>Groups</h1>
-      <span class="dot" id="status-dot"></span>
-    </div>
-    <span id="peer-count">–</span>
-  </header>
+    // The host half of the client: WebRTC, localStorage, and the URL. It moves
+    // bytes and nothing else — every frame it sends is ciphertext the wasm
+    // module produced, and no key material ever crosses this boundary.
+    const STUN = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+    ];
 
-  <aside id="drawer">
-    <button class="nav-item" data-view="groups">Groups</button>
-    <button class="nav-item" data-view="pairing">Pairing</button>
-    <button class="nav-item" data-view="bootstrap">Bootstrapping</button>
-    <button class="nav-item" data-view="settings">Settings</button>
-  </aside>
+    let bridge = null;
+    let pc = null, channel = null;
+    const openingHash = location.hash;   // captured before we ever rewrite it
 
-  <main id="groups"></main>
-  <button id="new-group" title="New group">+</button>
-</div>
+    // The guest starts asking for things during its first render, which happens
+    // inside boot() — before boot() has returned us the bridge to answer on. So
+    // callbacks queue until the bridge exists, then drain in order.
+    const queued = [];
+    function withBridge(fn) {
+      if (bridge) fn(bridge); else queued.push(fn);
+    }
+    const emit = (kind, payload) =>
+      withBridge((b) => b.p2prcEvent(kind, String(payload)));
+    const done = (id, ok, payload) => {
+      if (!id) return;
+      withBridge((b) => b.p2prcRequestComplete(id, ok, String(payload)));
+    };
 
-<!-- Settings -->
-<div id="view-settings" class="view hidden">
-  <header>
-    <div class="brand">
-      <button class="back-button" title="Back">←</button>
-      <h1>Settings</h1>
-    </div>
-  </header>
-  <main class="page">
-    <span class="field-label">You</span>
-    <p class="sub">Your identity is a keypair held on this device. Members are
-    named by their key, not by a nickname anyone could claim.</p>
-    <code id="identity-fingerprint">…</code>
-    <p class="sub" id="identity-backing"></p>
-    <label class="field-label" for="nick-field">Display name</label>
-    <input id="nick-field" type="text" placeholder="anon" maxlength="40" autocomplete="nickname">
+    // --- Compact encoding: SDP is repetitive text, so it gzips well. ---
+    const b64url = (bytes) => btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const unb64url = (text) => {
+      let s = text.replace(/-/g, "+").replace(/_/g, "/");
+      while (s.length % 4) s += "=";
+      return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+    };
+    async function pack(text) {
+      const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
+      return "z" + b64url(new Uint8Array(await new Response(stream).arrayBuffer()));
+    }
+    async function unpack(blob) {
+      const clean = String(blob).trim().replace(/^.*#[oa]=/, "").replace(/\s+/g, "");
+      const bytes = unb64url(clean.slice(1));
+      if (clean[0] === "r") return new TextDecoder().decode(bytes);
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+      return await new Response(stream).text();
+    }
 
-    <span class="field-label">Bootstrappers</span>
-    <p class="sub">Where a new device can fetch the app. Anything that serves a
-    static page will do; this list is shared with people you invite.</p>
-    <div id="bootstrapper-list"></div>
+    /// Trims SDP to what a data channel needs — smaller QR, easier scan. The
+    /// trailing CRLF is required: without it the last attribute is unterminated
+    /// and strict parsers reject the whole description.
+    const slim = (sdp) => sdp.split("\r\n")
+      .filter((l) => l !== "" && !(l.startsWith("a=candidate:") && l.includes(" tcp ")))
+      .join("\r\n") + "\r\n";
 
-    <span class="field-label">Storage</span>
-    <p class="sub" id="storage-summary"></p>
-    <button id="forget-all" class="ghost">Forget everything on this device</button>
-  </main>
-</div>
+    const gathered = (pc) => new Promise((resolve) => {
+      if (pc.iceGatheringState === "complete") return resolve();
+      // Don't wait forever on a candidate that may never arrive.
+      const timer = setTimeout(resolve, 3000);
+      pc.addEventListener("icegatheringstatechange", () => {
+        if (pc.iceGatheringState === "complete") { clearTimeout(timer); resolve(); }
+      });
+    });
 
-<!-- Bootstrapping: hand the app to someone who doesn't have it -->
-<div id="view-bootstrap" class="view hidden">
-  <header>
-    <div class="brand">
-      <button class="back-button" title="Back">←</button>
-      <h1>Bootstrapping</h1>
-    </div>
-  </header>
-  <main class="page code-page">
-    <p class="sub">A browser can't hand the app to a device that has nothing.
-    Point them here and they'll get it, then land straight on Pairing.</p>
-    <div class="code-row">
-      <button id="bootstrap-download" class="icon-button" title="Save the QR image">⬇</button>
-      <img id="bootstrap-qr" alt="Bootstrap QR code">
-      <button id="bootstrap-share" class="icon-button" title="Share the link">⇪</button>
-    </div>
-    <code id="bootstrap-url"></code>
-    <p class="sub">This only delivers the app. Pairing happens directly between
-    you and them and never reaches this host.</p>
-  </main>
-</div>
+    function wire(dc) {
+      channel = dc;
+      dc.onopen = () => emit("open", "");
+      dc.onmessage = (e) => emit("frame", e.data);
+      dc.onclose = () => emit("state", "disconnected");
+    }
 
-<!-- Pairing: the direct peer-to-peer connection -->
-<div id="view-pairing" class="view hidden">
-  <header>
-    <div class="brand">
-      <button class="back-button" title="Back">←</button>
-      <h1>Pairing</h1>
-    </div>
-    <span id="pair-e2ee" class="badge lock hidden" title="end-to-end encrypted">🔒</span>
-    
-    <span id="pair-state" class="sub"></span>
-  </header>
+    function newConnection() {
+      pc = new RTCPeerConnection({ iceServers: STUN });
+      pc.onconnectionstatechange = () => emit("state", pc.connectionState);
+      pc.ondatachannel = (e) => wire(e.channel);
+      return pc;
+    }
 
-  <div class="tabs">
-    <button id="tab-send" class="tab active">Send</button>
-    <button id="tab-receive" class="tab">Receive</button>
-  </div>
+    // The same-origin return path: another tab in this browser receives the
+    // answer with no user action. Cross-device pairing uses the reply QR.
+    // Two tabs of one origin share localStorage, so without this they would
+    // boot the *same* identity — and a peer cannot form a group with itself.
+    // The first live tab keeps the durable identity; any further tab gets its
+    // own, which is also the honest model: two tabs are two participants.
+    // A heartbeat marks the durable slot as taken; a stale mark is reclaimable,
+    // so closing the tab doesn't strand the identity forever.
+    const CLAIM = "p2prc:claim", BEAT = 1000, STALE = 3000;
+    function claimSlot() {
+      const existing = sessionStorage.getItem("p2prc:slot");
+      if (existing) return existing;
+      let slot = "identity:" + Math.random().toString(36).slice(2, 10);
+      const held = Number(localStorage.getItem(CLAIM) || 0);
+      if (Date.now() - held > STALE) slot = "identity";
+      sessionStorage.setItem("p2prc:slot", slot);
+      return slot;
+    }
+    const SLOT = claimSlot();
+    if (SLOT === "identity") {
+      const beat = () => localStorage.setItem(CLAIM, String(Date.now()));
+      beat();
+      setInterval(beat, BEAT);
+    }
+    const scoped = (key) => "p2prc:" + (key === "identity" ? SLOT : key);
 
-  <main class="page code-page" id="pair-send">
-    <p class="sub">Show this to the person you want to talk to, or send them
-    the link. It connects the two browsers directly.</p>
-    <button id="pair-create">Create an invitation</button>
-    <div id="pair-send-out" class="hidden">
-      <div class="code-row">
-        <button id="pair-download" class="icon-button" title="Save the QR image">⬇</button>
-        <img id="pair-qr" alt="Pairing QR code">
-        <button id="pair-share" class="icon-button" title="Share the link">⇪</button>
-      </div>
-      <code id="pair-url"></code>
-      <p class="sub">Then switch to <b>Receive</b> to take their reply.</p>
-    </div>
-  </main>
+    const relay = new BroadcastChannel("p2prc-pair");
+    relay.onmessage = (e) => {
+      if (e.data && e.data.kind === "answer") emit("answer", e.data.blob);
+    };
 
-  <main class="page hidden" id="pair-receive">
-    <p class="sub">Scan what they're showing, or paste the link they sent.
-    Works for an invitation or a reply — it figures out which.</p>
-    <button id="pair-scan">Scan with camera</button>
-    <video id="pair-video" class="hidden" playsinline muted></video>
-    <textarea id="pair-input" rows="4" placeholder="paste the link or code here"
-      autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
-    <button id="pair-accept">Connect</button>
-    <div id="pair-answer-out" class="hidden">
-      <span class="field-label">Send this reply back to them</span>
-      <div class="code-row">
-        <button id="pair-answer-download" class="icon-button" title="Save the QR image">⬇</button>
-        <img id="pair-answer-qr" alt="Reply QR code">
-        <button id="pair-answer-share" class="icon-button" title="Share the link">⇪</button>
-      </div>
-      <code id="pair-answer-url"></code>
-    </div>
-  </main>
+    const host = {
+      async createOffer(requestID) {
+        try {
+          const c = newConnection();
+          wire(c.createDataChannel("p2prc", { ordered: true }));
+          await c.setLocalDescription(await c.createOffer());
+          await gathered(c);
+          done(requestID, true, await pack(slim(c.localDescription.sdp)));
+        } catch (err) { done(requestID, false, err.message); }
+      },
+      async acceptOffer(requestID, blob) {
+        try {
+          const c = newConnection();
+          await c.setRemoteDescription({ type: "offer", sdp: await unpack(blob) });
+          await c.setLocalDescription(await c.createAnswer());
+          await gathered(c);
+          done(requestID, true, await pack(slim(c.localDescription.sdp)));
+        } catch (err) { done(requestID, false, err.message); }
+      },
+      async acceptAnswer(requestID, blob) {
+        try {
+          await pc.setRemoteDescription({ type: "answer", sdp: await unpack(blob) });
+          done(requestID, true, "");
+        } catch (err) { emit("error", err.message); }
+      },
+      sendFrame(text) {
+        if (channel && channel.readyState === "open") channel.send(text);
+      },
+      save(key, value) { localStorage.setItem(scoped(key), value); },
+      load(requestID, key) { done(requestID, true, localStorage.getItem(scoped(key)) || ""); },
+      pageURL(requestID) { done(requestID, true, location.origin + location.pathname); },
+      openingHash(requestID) { done(requestID, true, openingHash); },
+      setHash(value) { history.replaceState(null, "", "#" + value); },
+      publishAnswer(blob) { relay.postMessage({ kind: "answer", blob: blob }); },
+      drawQR(elementID, text) {
+        const el = document.getElementById(elementID);
+        if (el && window.P2PRCQR) window.P2PRCQR.draw(el, text);
+      },
+    };
 
-  <main id="pair-messages" class="hidden"></main>
-  <footer id="pair-footer" class="hidden">
-    <input id="pair-text" type="text" placeholder="message…" maxlength="2000" autocomplete="off">
-    <button id="pair-send-message">Send</button>
-  </footer>
-</div>
-
-<!-- A group conversation -->
-<div id="view-group" class="view hidden">
-  <header>
-    <div class="brand">
-      <button class="back-button" title="All groups">←</button>
-      <h1 id="group-title"></h1>
-    </div>
-    <div class="header-right">
-      <span id="group-epoch" class="badge lock" title="MLS epoch"></span>
-      <span id="group-online" class="sub"></span>
-    </div>
-  </header>
-  <main id="group-messages"></main>
-  <footer>
-    <input id="group-text" type="text" placeholder="message…  (/nick, /add, /invite, /leave)" maxlength="2000" autocomplete="off">
-    <button id="group-send">Send</button>
-  </footer>
-</div>
-
-<script src="qrcode.js?v=18ae399f"></script>
-<script src="direct.js?v=d0df9e52"></script>
-<script src="crypto.js?v=746430da"></script>
-<script src="model.js?v=b1b7f6ca"></script>
-<script src="sync.js?v=606786f8"></script>
-<script src="group_crypto.js?v=8e99c991"></script>
-<script src="store.js?v=919cba82"></script>
-<script src="net.js?v=9f576584"></script>
-<script src="app.js?v=e7e939f5"></script>
+    boot({
+      canvas: document.getElementById("canvas"),
+      wasmURL: "./app.wasm",
+      rendererName: new URLSearchParams(location.search).get("renderer") || "react",
+      dependencies: { host: Dependencies.p2PRCHost(() => host) },
+    }).then((result) => {
+      bridge = result.bridge;
+      while (queued.length) queued.shift()(bridge);
+    }).catch((error) => {
+      console.error(error);
+      const pre = document.createElement("pre");
+      pre.id = "error";
+      pre.textContent = String(error.stack || error);
+      document.body.replaceChildren(pre);
+    });
+  </script>
 </body>
 </html>
