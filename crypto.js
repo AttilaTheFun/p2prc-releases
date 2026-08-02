@@ -54,6 +54,12 @@
   /// keychain (iCloud Keychain, Windows Hello, Android's provider).
   function createPasskey(displayName) {
     if (!global.PublicKeyCredential || !navigator.credentials) return Promise.resolve(null);
+    // WebAuthn needs a user gesture. Arriving by a pairing link isn't one, and
+    // calling it anyway leaves the promise pending forever — so check first,
+    // and put a ceiling on it regardless.
+    if (navigator.userActivation && navigator.userActivation.isActive === false) {
+      return Promise.resolve(null);
+    }
     var challenge = randomBytes(32);
     var userId = randomBytes(16);
     return navigator.credentials.create({
@@ -81,6 +87,14 @@
       // Credential made, but PRF unavailable — caller falls back.
       return null;
     }).catch(function () { return null; });
+  }
+
+  /// Never let an authenticator prompt block identity creation indefinitely.
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise(function (resolve) { setTimeout(function () { resolve(null); }, ms); }),
+    ]);
   }
 
   /// Re-derives the same PRF secret by asserting the stored passkey.
@@ -199,7 +213,7 @@
       var record;
       try { record = JSON.parse(stored); } catch (e) { record = null; }
       if (record) {
-        var unlock = record.wrapped ? usePasskey().then(function (secret) {
+        var unlock = record.wrapped ? withTimeout(usePasskey(), 30000).then(function (secret) {
           return secret ? wrappingKeyFrom(secret) : null;
         }) : Promise.resolve(null);
         return unlock.then(function (wrappingKey) {
@@ -215,7 +229,7 @@
     // First run: make a passkey (so the key is keychain-protected) and a
     // fresh ECDH identity.
     var passkeyPromise = options.interactive && options.usePasskey !== false
-      ? createPasskey(options.name)
+      ? withTimeout(createPasskey(options.name), 30000)
       : Promise.resolve(null);
 
     return passkeyPromise.then(function (secret) {
