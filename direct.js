@@ -138,7 +138,7 @@
   DirectSession.prototype.createInvite = function () {
     var self = this;
     var pc = this.newConnection();
-    this.setupChannel(pc.createDataChannel("qrc-direct", { ordered: true }));
+    this.setupChannel(pc.createDataChannel("p2prc-direct", { ordered: true }));
     this.onState("gathering");
     return pc.createOffer()
       .then(function (offer) { return pc.setLocalDescription(offer); })
@@ -191,5 +191,5 @@
     return match ? { kind: match[1], blob: match[2] } : null;
   };
 
-  global.QRCDirect = DirectSession;
+  global.P2PRCDirect = DirectSession;
 })(window);

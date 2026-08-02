@@ -5,7 +5,7 @@
  * Once a data channel opens, messages travel straight between browsers and
  * never touch the host again.
  *
- * This also traverses NAT in a way the rest of QRC can't: ICE punches UDP
+ * This also traverses NAT in a way the rest of P2PRC can't: ICE punches UDP
  * holes from both sides, which works in plenty of places where an inbound TCP
  * connection is refused outright (mobile carriers, most home routers).
  */
@@ -17,7 +17,7 @@
     { urls: "stun:stun1.l.google.com:19302" },
   ];
 
-  function QRCPeers(options) {
+  function P2PRCPeers(options) {
     this.selfId = options.selfId;
     this.api = options.api;                 // key-bearing fetch wrapper
     this.onMessage = options.onMessage || function () {};
@@ -28,7 +28,7 @@
     this.polling = false;
   }
 
-  QRCPeers.prototype.setRoom = function (room) {
+  P2PRCPeers.prototype.setRoom = function (room) {
     if (this.room === room) return;
     this.room = room;
     // Connections are per-room; drop any from the room we just left.
@@ -39,12 +39,12 @@
     }
   };
 
-  QRCPeers.prototype.closeAll = function () {
+  P2PRCPeers.prototype.closeAll = function () {
     var self = this;
     Object.keys(this.peers).forEach(function (id) { self.close(id); });
   };
 
-  QRCPeers.prototype.close = function (peerId) {
+  P2PRCPeers.prototype.close = function (peerId) {
     var peer = this.peers[peerId];
     if (!peer) return;
     try { if (peer.channel) peer.channel.close(); } catch (e) {}
@@ -54,7 +54,7 @@
   };
 
   /// How many peers we're talking to directly right now.
-  QRCPeers.prototype.directCount = function () {
+  P2PRCPeers.prototype.directCount = function () {
     var self = this;
     return Object.keys(this.peers).filter(function (id) {
       var channel = self.peers[id].channel;
@@ -62,11 +62,11 @@
     }).length;
   };
 
-  QRCPeers.prototype.report = function () {
+  P2PRCPeers.prototype.report = function () {
     this.onStatus(this.directCount());
   };
 
-  QRCPeers.prototype.send = function (text, name) {
+  P2PRCPeers.prototype.send = function (text, name) {
     var payload = JSON.stringify({
       cid: this.selfId,
       name: name || "anon",
@@ -84,7 +84,7 @@
     return sent;
   };
 
-  QRCPeers.prototype.signal = function (to, kind, payload) {
+  P2PRCPeers.prototype.signal = function (to, kind, payload) {
     return this.api("/api/signal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -92,7 +92,7 @@
     }).catch(function () {});
   };
 
-  QRCPeers.prototype.ensurePeer = function (peerId, isInitiator) {
+  P2PRCPeers.prototype.ensurePeer = function (peerId, isInitiator) {
     if (this.peers[peerId]) return this.peers[peerId];
     var self = this;
     var pc = new RTCPeerConnection({ iceServers: STUN });
@@ -117,7 +117,7 @@
     if (isInitiator) {
       // Deterministic roles: the lower id offers, so two peers never collide
       // by both offering at once (glare).
-      var channel = pc.createDataChannel("qrc", { ordered: true });
+      var channel = pc.createDataChannel("p2prc", { ordered: true });
       this.attach(peerId, channel);
       pc.createOffer()
         .then(function (offer) { return pc.setLocalDescription(offer).then(function () { return offer; }); })
@@ -127,11 +127,11 @@
     return entry;
   };
 
-  QRCPeers.prototype.attach = function (peerId, channel) {
+  P2PRCPeers.prototype.attach = function (peerId, channel) {
     var self = this;
     this.peers[peerId].channel = channel;
     channel.onopen = function () {
-      console.log("[qrc] direct channel open to", peerId);
+      console.log("[p2prc] direct channel open to", peerId);
       self.report();
     };
     channel.onclose = function () { self.report(); };
@@ -147,7 +147,7 @@
     };
   };
 
-  QRCPeers.prototype.handle = function (envelope) {
+  P2PRCPeers.prototype.handle = function (envelope) {
     var self = this;
     var peerId = envelope.from;
     var payload;
@@ -177,7 +177,7 @@
     }
   };
 
-  QRCPeers.prototype.poll = function () {
+  P2PRCPeers.prototype.poll = function () {
     var self = this;
     if (!this.room) {
       this.polling = false;
@@ -205,5 +205,5 @@
       });
   };
 
-  global.QRCPeers = QRCPeers;
+  global.P2PRCPeers = P2PRCPeers;
 })(window);

@@ -73,10 +73,10 @@
   // --- Server --------------------------------------------------------------
 
   /// An IRC server whose "sockets" are WebRTC data channels. Everything a
-  /// native QRC host does over TCP, a browser tab can do here.
+  /// native P2PRC host does over TCP, a browser tab can do here.
   function IRCServer(options) {
     options = options || {};
-    this.name = options.serverName || "qrc-peer";
+    this.name = options.serverName || "p2prc-peer";
     this.onEvent = options.onEvent || function () {};
     /// Extra state handed to a client the moment it registers — the point of
     /// pairing is to join a network, so a joiner learns what we know.
@@ -150,7 +150,7 @@
   IRCServer.prototype.say = function (channelName, nick, text) {
     this.ensureChannel(channelName).history.push({ nick: nick, text: text, ts: Date.now() / 1000 });
     this.broadcast(channelName, {
-      prefix: nick + "!qrc@qrc",
+      prefix: nick + "!p2prc@p2prc",
       command: "PRIVMSG",
       params: [channelName, text],
     });
@@ -168,7 +168,7 @@
         var previous = client.nick;
         client.nick = wanted;
         if (client.registered && previous) {
-          this.broadcast(null, { prefix: previous + "!qrc@qrc", command: "NICK", params: [wanted] });
+          this.broadcast(null, { prefix: previous + "!p2prc@p2prc", command: "NICK", params: [wanted] });
           this.onEvent({ type: "nick", from: previous, to: wanted });
         } else {
           this.register(client);
@@ -176,7 +176,7 @@
         break;
 
       case "USER":
-        client.user = message.params[0] || "qrc";
+        client.user = message.params[0] || "p2prc";
         this.register(client);
         break;
 
@@ -190,7 +190,7 @@
           var channelName = name.charAt(0) === "#" ? name : "#" + name;
           self.ensureChannel(channelName);
           client.joined[channelName] = true;
-          var join = { prefix: client.nick + "!qrc@qrc", command: "JOIN", params: [channelName] };
+          var join = { prefix: client.nick + "!p2prc@p2prc", command: "JOIN", params: [channelName] };
           self.write(client, join);
           self.broadcast(channelName, join, client);
           self.numeric(client, "332", [channelName, self.channels[channelName].topic]);
@@ -203,7 +203,7 @@
           // Replay what was said before they arrived, the way a bouncer does.
           self.channels[channelName].history.slice(-30).forEach(function (entry) {
             self.write(client, {
-              prefix: entry.nick + "!qrc@qrc",
+              prefix: entry.nick + "!p2prc@p2prc",
               command: "PRIVMSG",
               params: [channelName, entry.text],
             });
@@ -214,7 +214,7 @@
 
       // Clients announce their public key on arrival; the server fans the
       // roster back out so everyone can seal messages for everyone else.
-      case "QRCKEY":
+      case "P2PRCKEY":
         try {
           client.publicKey = JSON.parse(message.params[0]);
           this.roster[client.nick] = client.publicKey;
@@ -231,7 +231,7 @@
           nick: client.nick, text: text, ts: Date.now() / 1000,
         });
         this.broadcast(target, {
-          prefix: client.nick + "!qrc@qrc",
+          prefix: client.nick + "!p2prc@p2prc",
           command: "PRIVMSG",
           params: [target, text],
         }, client);
@@ -243,7 +243,7 @@
         if (parting && client.joined[parting]) {
           delete client.joined[parting];
           this.broadcast(parting, {
-            prefix: client.nick + "!qrc@qrc", command: "PART", params: [parting],
+            prefix: client.nick + "!p2prc@p2prc", command: "PART", params: [parting],
           });
         }
         break;
@@ -268,7 +268,7 @@
       this.write(this.clients[i], {
         prefix: this.name,
         command: "NOTICE",
-        params: [this.clients[i].nick, "QRCROSTER " + payload],
+        params: [this.clients[i].nick, "P2PRCROSTER " + payload],
       });
     }
   };
@@ -276,10 +276,10 @@
   IRCServer.prototype.register = function (client) {
     if (client.registered || !client.nick || !client.user) return;
     client.registered = true;
-    this.numeric(client, "001", ["Welcome to QRC, " + client.nick]);
+    this.numeric(client, "001", ["Welcome to P2PRC, " + client.nick]);
     this.numeric(client, "002", ["Your host is " + this.name + ", running over WebRTC"]);
-    this.numeric(client, "004", [this.name, "qrc-1.0", "o", "nt"]);
-    this.numeric(client, "005", ["NETWORK=QRC", "CHANTYPES=#", "are supported by this server"]);
+    this.numeric(client, "004", [this.name, "p2prc-1.0", "o", "nt"]);
+    this.numeric(client, "005", ["NETWORK=P2PRC", "CHANTYPES=#", "are supported by this server"]);
     this.numeric(client, "375", ["- " + this.name + " -"]);
     this.numeric(client, "372", ["- You are connected over a direct peer link."]);
     this.numeric(client, "376", ["End of /MOTD command"]);
@@ -290,12 +290,12 @@
     this.write(client, {
       prefix: this.name,
       command: "NOTICE",
-      params: [client.nick, "QRCNET " + JSON.stringify(info)],
+      params: [client.nick, "P2PRCNET " + JSON.stringify(info)],
     });
     if (this.identityKey) {
       this.write(client, {
         prefix: this.name,
-        command: "QRCKEY",
+        command: "P2PRCKEY",
         params: [JSON.stringify(this.identityKey)],
       });
     }
@@ -326,9 +326,9 @@
     });
     dataChannel.onmessage = function (event) { framer.push(event.data); };
     this.send({ command: "NICK", params: [this.nick] });
-    this.send({ command: "USER", params: [this.nick, "0", "*", "QRC"] });
+    this.send({ command: "USER", params: [this.nick, "0", "*", "P2PRC"] });
     if (this.identityKey) {
-      this.send({ command: "QRCKEY", params: [JSON.stringify(this.identityKey)] });
+      this.send({ command: "P2PRCKEY", params: [JSON.stringify(this.identityKey)] });
     }
   };
 
@@ -375,7 +375,7 @@
       case "QUIT":
         this.onEvent({ type: "part", nick: nick, channel: message.params[0] });
         break;
-      case "QRCKEY":
+      case "P2PRCKEY":
         try {
           this.roster[nick] = JSON.parse(message.params[0]);
           this.onEvent({ type: "key", nick: nick, roster: this.roster });
@@ -384,14 +384,14 @@
 
       case "NOTICE":
         var text = message.params[1] || "";
-        if (text.indexOf("QRCROSTER ") === 0) {
+        if (text.indexOf("P2PRCROSTER ") === 0) {
           try {
             this.roster = JSON.parse(text.slice(10));
             this.onEvent({ type: "roster", roster: this.roster });
           } catch (e) {}
           break;
         }
-        if (text.indexOf("QRCNET ") === 0) {
+        if (text.indexOf("P2PRCNET ") === 0) {
           // The network the server knows about, handed over on registration.
           try {
             this.onEvent({ type: "network", info: JSON.parse(text.slice(7)) });
@@ -417,7 +417,7 @@
     }
   };
 
-  global.QRCIRC = {
+  global.P2PRCIRC = {
     parse: parse,
     serialize: serialize,
     Framer: Framer,

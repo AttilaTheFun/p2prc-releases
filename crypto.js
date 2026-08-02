@@ -1,4 +1,4 @@
-/* End-to-end encryption for QRC.
+/* End-to-end encryption for P2PRC.
  *
  * The server relays ciphertext it cannot read. This follows the JWE
  * multi-recipient pattern (RFC 7516 ECDH-ES): each message gets a random
@@ -19,8 +19,8 @@
 (function (global) {
   "use strict";
 
-  var STORE_KEY = "qrc-identity";
-  var PASSKEY_KEY = "qrc-passkey-id";
+  var STORE_KEY = "p2prc-identity";
+  var PASSKEY_KEY = "p2prc-passkey-id";
   var subtle = global.crypto && global.crypto.subtle;
 
   // --- Encoding helpers ----------------------------------------------------
@@ -65,8 +65,8 @@
     return navigator.credentials.create({
       publicKey: {
         challenge: challenge,
-        rp: { name: "QRC", id: location.hostname },
-        user: { id: userId, name: displayName || "qrc", displayName: displayName || "QRC identity" },
+        rp: { name: "P2PRC", id: location.hostname },
+        user: { id: userId, name: displayName || "p2prc", displayName: displayName || "P2PRC identity" },
         pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
         authenticatorSelection: {
           residentKey: "preferred",
@@ -74,7 +74,7 @@
         },
         // Ask for a stable per-credential secret we can derive a wrapping key
         // from. Without this a passkey can only authenticate, not encrypt.
-        extensions: { prf: { eval: { first: new TextEncoder().encode("qrc-identity-v1") } } },
+        extensions: { prf: { eval: { first: new TextEncoder().encode("p2prc-identity-v1") } } },
         timeout: 60000,
       },
     }).then(function (credential) {
@@ -106,7 +106,7 @@
         challenge: randomBytes(32),
         allowCredentials: [{ type: "public-key", id: fromB64(stored) }],
         userVerification: "preferred",
-        extensions: { prf: { eval: { first: new TextEncoder().encode("qrc-identity-v1") } } },
+        extensions: { prf: { eval: { first: new TextEncoder().encode("p2prc-identity-v1") } } },
         timeout: 60000,
       },
     }).then(function (assertion) {
@@ -124,7 +124,7 @@
       .then(function (material) {
         return subtle.deriveKey(
           { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0),
-            info: new TextEncoder().encode("qrc-key-wrap-v1") },
+            info: new TextEncoder().encode("p2prc-key-wrap-v1") },
           material,
           { name: "AES-GCM", length: 256 },
           false,
@@ -260,7 +260,7 @@
       .then(function (material) {
         return subtle.deriveKey(
           { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0),
-            info: new TextEncoder().encode("qrc-message-v1") },
+            info: new TextEncoder().encode("p2prc-message-v1") },
           material,
           { name: "AES-GCM", length: 256 },
           false,
@@ -338,7 +338,7 @@
   // (`?OTR:`). Any IRC server relays it untouched, and a client that doesn't
   // understand it shows a marker rather than breaking.
 
-  var PREFIX = "+qrc1:";
+  var PREFIX = "+p2prc1:";
 
   function encode(envelope) {
     return PREFIX + toB64(new TextEncoder().encode(JSON.stringify(envelope)));
@@ -353,7 +353,7 @@
     }
   }
 
-  global.QRCCrypto = {
+  global.P2PRCCrypto = {
     loadIdentity: loadIdentity,
     fingerprintOf: fingerprintOf,
     seal: seal,

@@ -10,7 +10,7 @@
 (function (global) {
   "use strict";
 
-  var DB = "qrc";
+  var DB = "p2prc";
   var VERSION = 1;
   var opening = null;
 
@@ -90,7 +90,7 @@
     return promise.catch(function (error) {
       if (!warned) {
         warned = true;
-        console.warn("[qrc] local storage unavailable, running from memory:", error && error.message);
+        console.warn("[p2prc] local storage unavailable, running from memory:", error && error.message);
       }
       return fallback;
     });
@@ -130,5 +130,5 @@
     },
   };
 
-  global.QRCStore = Store;
+  global.P2PRCStore = Store;
 })(typeof window !== "undefined" ? window : globalThis);

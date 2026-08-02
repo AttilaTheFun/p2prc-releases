@@ -1,4 +1,4 @@
-/* QRC — a peer-to-peer, end-to-end encrypted chat network with no servers.
+/* P2PRC — a peer-to-peer, end-to-end encrypted chat network with no servers.
  *
  * Every client is equal. There is no host, no room owner, and nothing that has
  * to stay online for a conversation to exist. A client holds its own identity,
@@ -21,14 +21,14 @@
 
   // Read once: local storage is shared by every tab on this origin, so
   // re-reading would let another window silently change who we are.
-  var myNick = localStorage.getItem("qrc-name") || "anon";
+  var myNick = localStorage.getItem("p2prc-name") || "anon";
   var identity = null;
 
   function myName() { return myNick; }
 
   function setNick(nick) {
     myNick = nick;
-    localStorage.setItem("qrc-name", nick);
+    localStorage.setItem("p2prc-name", nick);
     net.name = nick;
     if ($("nick-field")) $("nick-field").value = nick;
   }
@@ -44,7 +44,7 @@
   /// Creating an identity may prompt for Face ID, so it needs a user gesture.
   function ensureIdentity() {
     if (identity) return Promise.resolve(identity);
-    return QRCCrypto.loadIdentity({ interactive: true, name: myName() })
+    return P2PRCCrypto.loadIdentity({ interactive: true, name: myName() })
       .then(function (loaded) {
         identity = loaded;
         showIdentity();
@@ -54,10 +54,10 @@
 
   // --- The network ---------------------------------------------------------
 
-  var net = new QRCNet({
+  var net = new P2PRCNet({
     name: myName(),
     onChange: function () { renderGroups(); renderGroup(); renderPresence(); },
-    onLog: function (line) { console.log("[qrc] " + line); },
+    onLog: function (line) { console.log("[p2prc] " + line); },
   });
 
   function renderPresence() {
@@ -69,7 +69,7 @@
   // --- Bootstrappers -------------------------------------------------------
 
   function knownBootstrappers() {
-    try { return JSON.parse(localStorage.getItem("qrc-bootstrappers") || "[]"); }
+    try { return JSON.parse(localStorage.getItem("p2prc-bootstrappers") || "[]"); }
     catch (e) { return []; }
   }
 
@@ -78,7 +78,7 @@
     var list = knownBootstrappers();
     if (list.indexOf(url) === -1) {
       list.unshift(url);
-      localStorage.setItem("qrc-bootstrappers", JSON.stringify(list.slice(0, 8)));
+      localStorage.setItem("p2prc-bootstrappers", JSON.stringify(list.slice(0, 8)));
     }
   }
 
@@ -199,10 +199,10 @@
   }
 
   $("bootstrap-download").addEventListener("click", function () {
-    downloadQR($("bootstrap-qr"), "qrc-bootstrap.png");
+    downloadQR($("bootstrap-qr"), "p2prc-bootstrap.png");
   });
   $("bootstrap-share").addEventListener("click", function () {
-    shareLink(bootstrapLink(), "Get QRC");
+    shareLink(bootstrapLink(), "Get P2PRC");
   });
 
   // --- Groups --------------------------------------------------------------
@@ -399,7 +399,7 @@
 
   function newSession() {
     if (session) session.close();
-    session = new QRCDirect({
+    session = new P2PRCDirect({
       name: myName(),
       onState: function (state) {
         $("pair-state").textContent = state;
@@ -430,10 +430,10 @@
       .finally(function () { $("pair-create").disabled = false; });
   });
 
-  $("pair-download").addEventListener("click", function () { downloadQR($("pair-qr"), "qrc-invite.png"); });
-  $("pair-share").addEventListener("click", function () { shareLink(inviteURL, "Join me on QRC"); });
-  $("pair-answer-download").addEventListener("click", function () { downloadQR($("pair-answer-qr"), "qrc-reply.png"); });
-  $("pair-answer-share").addEventListener("click", function () { shareLink(answerURL, "QRC reply"); });
+  $("pair-download").addEventListener("click", function () { downloadQR($("pair-qr"), "p2prc-invite.png"); });
+  $("pair-share").addEventListener("click", function () { shareLink(inviteURL, "Join me on P2PRC"); });
+  $("pair-answer-download").addEventListener("click", function () { downloadQR($("pair-answer-qr"), "p2prc-reply.png"); });
+  $("pair-answer-share").addEventListener("click", function () { shareLink(answerURL, "P2PRC reply"); });
 
   function acceptBlob(text) {
     var payload = String(text).trim();
@@ -529,7 +529,7 @@
 
   $("forget-all").addEventListener("click", function () {
     if (!confirm("Delete your identity, groups and history from this device? Other members keep theirs.")) return;
-    QRCStore.clear().finally(function () {
+    P2PRCStore.clear().finally(function () {
       localStorage.clear();
       location.reload();
     });
@@ -558,8 +558,8 @@
 
   // Load an existing identity and history quietly: your groups should be there
   // whether or not anyone else is online.
-  if (localStorage.getItem("qrc-identity")) {
-    QRCCrypto.loadIdentity({ interactive: false })
+  if (localStorage.getItem("p2prc-identity")) {
+    P2PRCCrypto.loadIdentity({ interactive: false })
       .then(function (loaded) {
         identity = loaded;
         showIdentity();

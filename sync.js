@@ -80,5 +80,5 @@
     }
   };
 
-  global.QRCSync = Sync;
+  global.P2PRCSync = Sync;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -239,7 +239,7 @@
     });
   };
 
-  global.QRCModel = {
+  global.P2PRCModel = {
     canonical: canonical,
     hash: hash,
     makeEvent: makeEvent,

@@ -41,12 +41,12 @@
 
   Net.prototype.load = function () {
     var self = this;
-    if (!global.QRCStore || !QRCStore.available()) return Promise.resolve();
-    return QRCStore.loadGroups().then(function (records) {
+    if (!global.P2PRCStore || !P2PRCStore.available()) return Promise.resolve();
+    return P2PRCStore.loadGroups().then(function (records) {
       return Promise.all(records.map(function (record) {
-        var group = new QRCModel.Group(record);
+        var group = new P2PRCModel.Group(record);
         self.groups[group.id] = group;
-        return QRCStore.loadEvents(group.id).then(function (events) {
+        return P2PRCStore.loadEvents(group.id).then(function (events) {
           group.graph.merge(events);
           group.applyMembership();
         });
@@ -55,10 +55,10 @@
   };
 
   Net.prototype.persist = function (group, events) {
-    if (!global.QRCStore || !QRCStore.available()) return Promise.resolve();
+    if (!global.P2PRCStore || !P2PRCStore.available()) return Promise.resolve();
     return Promise.all([
-      QRCStore.saveGroup({ id: group.id, name: group.name, createdBy: group.createdBy, epoch: group.epoch }),
-      QRCStore.saveEvents(events || group.graph.ordered()),
+      P2PRCStore.saveGroup({ id: group.id, name: group.name, createdBy: group.createdBy, epoch: group.epoch }),
+      P2PRCStore.saveEvents(events || group.graph.ordered()),
     ]);
   };
 
@@ -66,7 +66,7 @@
 
   Net.prototype.groupKeys = function (groupId) {
     if (!this.keys[groupId]) {
-      this.keys[groupId] = new QRCGroupCrypto.GroupKeys(this.identity, this.memberId);
+      this.keys[groupId] = new P2PRCGroupCrypto.GroupKeys(this.identity, this.memberId);
     }
     return this.keys[groupId];
   };
@@ -77,19 +77,19 @@
     var self = this;
     var members = [{ id: this.memberId, name: this.name, key: this.identity.publicJWK }]
       .concat(otherMembers || []);
-    return QRCModel.hash(this.memberId + "|" + name + "|" + Date.now()).then(function (id) {
-      var group = new QRCModel.Group({ id: id, name: name, createdBy: self.memberId });
+    return P2PRCModel.hash(this.memberId + "|" + name + "|" + Date.now()).then(function (id) {
+      var group = new P2PRCModel.Group({ id: id, name: name, createdBy: self.memberId });
       self.groups[id] = group;
       // Everything about a group is an event, including its name — a peer
       // that learns of the group by sync must be able to reconstruct it
       // without being told anything out of band.
-      var creation = QRCModel.makeEvent({
+      var creation = P2PRCModel.makeEvent({
         group: id, author: self.memberId, kind: "create",
         parents: [], body: { name: name },
       });
       return creation.then(function (createEvent) {
         var joins = members.map(function (member) {
-          return QRCModel.makeEvent({
+          return P2PRCModel.makeEvent({
             group: id, author: self.memberId, kind: "join",
             parents: [createEvent.id],
             body: { member: member.id, name: member.name, key: member.key },
@@ -127,7 +127,7 @@
     var prepared;
     return keys.prepare(members).then(function (result) {
       prepared = result;
-      return QRCModel.makeEvent({
+      return P2PRCModel.makeEvent({
         group: group.id, author: self.memberId, kind: "rekey",
         parents: group.graph.heads(), body: { epoch: epoch, welcome: result.welcome },
       });
@@ -144,7 +144,7 @@
   /// Adds someone to a group and rekeys so they can read from now on.
   Net.prototype.addMember = function (group, member) {
     var self = this;
-    return QRCModel.makeEvent({
+    return P2PRCModel.makeEvent({
       group: group.id, author: this.memberId, kind: "invite",
       parents: group.graph.heads(),
       body: { member: member.id, name: member.name, key: member.key },
@@ -159,7 +159,7 @@
 
   Net.prototype.leaveGroup = function (group) {
     var self = this;
-    return QRCModel.makeEvent({
+    return P2PRCModel.makeEvent({
       group: group.id, author: this.memberId, kind: "leave",
       parents: group.graph.heads(), body: { member: this.memberId },
     }).then(function (event) {
@@ -178,7 +178,7 @@
     var sealed = keys.canSend() ? keys.encrypt(text) : Promise.resolve(null);
 
     return sealed.then(function (envelope) {
-      return QRCModel.makeEvent({
+      return P2PRCModel.makeEvent({
         group: group.id, author: self.memberId, kind: "message",
         parents: group.graph.heads(),
         // Unencrypted only when we have no epoch key at all — visible in the
@@ -237,14 +237,14 @@
       try { channel.send(JSON.stringify(message)); } catch (e) {}
     }
 
-    link.sync = new QRCSync({
+    link.sync = new P2PRCSync({
       groups: this.groups,
       send: post,
       ensureGroup: function (groupId) {
         // Learning about a group we've never seen: accept it, since being
         // told about it is how joining works.
         if (!self.groups[groupId]) {
-          self.groups[groupId] = new QRCModel.Group({ id: groupId });
+          self.groups[groupId] = new P2PRCModel.Group({ id: groupId });
         }
         return self.groups[groupId];
       },
@@ -300,16 +300,16 @@
     // Deterministic id from both member ids, so both sides create the *same*
     // group rather than two halves of a conversation.
     var pair = [this.memberId, peer.id].sort().join("|");
-    return QRCModel.hash("dm|" + pair).then(function (id) {
+    return P2PRCModel.hash("dm|" + pair).then(function (id) {
       if (self.groups[id]) return self.groups[id];
-      var group = new QRCModel.Group({ id: id, name: "" });
+      var group = new P2PRCModel.Group({ id: id, name: "" });
       self.groups[id] = group;
       var members = [
         { id: self.memberId, name: self.name, key: self.identity.publicJWK },
         { id: peer.id, name: peer.name, key: peer.key },
       ];
       var joins = members.map(function (member) {
-        return QRCModel.makeEvent({
+        return P2PRCModel.makeEvent({
           group: id, author: self.memberId, kind: "join", parents: [],
           // Fixed timestamp: both sides must generate byte-identical events
           // so their ids match and the graphs merge instead of duplicating.
@@ -347,5 +347,5 @@
 
   Net.prototype.onlineCount = function () { return this.links.length; };
 
-  global.QRCNet = Net;
+  global.P2PRCNet = Net;
 })(typeof window !== "undefined" ? window : globalThis);

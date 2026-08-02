@@ -61,7 +61,7 @@
         return subtle.deriveBits({
           name: "HKDF", hash: "SHA-256",
           salt: new Uint8Array(0),
-          info: enc.encode("qrc-mls-v1 " + label),
+          info: enc.encode("p2prc-mls-v1 " + label),
         }, material, length * 8);
       })
       .then(function (bits) { return new Uint8Array(bits); });
@@ -223,7 +223,7 @@
     return decryptMessage(secret, envelope);
   };
 
-  global.QRCGroupCrypto = {
+  global.P2PRCGroupCrypto = {
     GroupKeys: GroupKeys,
     sealEpoch: sealEpoch,
     openEpoch: openEpoch,
