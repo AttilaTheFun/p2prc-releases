@@ -16,6 +16,8 @@
 
   function open() {
     if (opening) return opening;
+    // Never cache a failure: one blocked open (another tab mid-upgrade) would
+    // otherwise poison every write for the lifetime of the page, silently.
     opening = new Promise(function (resolve, reject) {
       var settled = false;
       // A blocked upgrade (another tab holding the database) leaves this
@@ -54,6 +56,7 @@
         reject(request.error);
       };
     });
+    opening.catch(function () { opening = null; });
     return opening;
   }
 
@@ -82,8 +85,15 @@
     });
   }
 
+  var warned = false;
   function soft(promise, fallback) {
-    return promise.catch(function () { return fallback; });
+    return promise.catch(function (error) {
+      if (!warned) {
+        warned = true;
+        console.warn("[qrc] local storage unavailable, running from memory:", error && error.message);
+      }
+      return fallback;
+    });
   }
 
   var Store = {
