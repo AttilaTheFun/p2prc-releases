@@ -19,6 +19,7 @@
   var chatBack = $("chat-back"), roomTitle = $("room-title"), roomPeers = $("room-peers");
   var messagesEl = $("messages"), textInput = $("text"), sendButton = $("send");
   var p2pBadge = $("p2p-badge");
+  var nameInput = { value: "" };  // nick is set with /nick, not a field
   var modeIpv4 = $("mode-ipv4"), modeIpv6 = $("mode-ipv6");
   var stunToggle = $("stun-toggle"), upnpToggle = $("upnp-toggle");
   var stunRow = $("stun-row"), upnpRow = $("upnp-row");
@@ -62,6 +63,17 @@
 
   function myName() {
     return localStorage.getItem("qrc-name") || "anon";
+  }
+
+  /// One name everywhere: the servers, IRC, and any direct pairing.
+  function setNick(nick) {
+    localStorage.setItem("qrc-name", nick);
+    if (session) session.name = nick;
+    api("/api/nick", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nick: nick }),
+    }).catch(function () {});
   }
 
   function api(path, options) {
@@ -599,7 +611,7 @@
 
     if (command === "nick") {
       if (!rest) { systemLine("usage: /nick <name>"); return true; }
-      localStorage.setItem("qrc-name", rest);
+      setNick(rest);
       api("/api/nick", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1180,6 +1192,15 @@
   function sendPairMessage() {
     var text = pairText.value.trim();
     if (!text || !session) return;
+    if (text.indexOf("/nick ") === 0) {
+      var nick = text.slice(6).trim();
+      if (nick) {
+        setNick(nick);
+        pairLine("", "you are now " + nick, false);
+      }
+      pairText.value = "";
+      return;
+    }
     if (session.send(text)) {
       pairLine(myName(), text, true);
       pairText.value = "";
