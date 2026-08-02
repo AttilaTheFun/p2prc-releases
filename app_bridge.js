@@ -12,9 +12,9 @@
 //
 // The shared runtime (swift_ffi/runtime/ts) is staged next to this file
 // by the wasm library macro; bridges in one directory share the one copy.
-import { BlobReader, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeErrorBlob, encodeWith, encoder, foreignObjects, registerForeign, registry, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js?v=179e41bc";
+import { BlobReader, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeErrorBlob, encodeWith, encoder, foreignObjects, registerForeign, registry, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js";
 // Re-exported so consumers keep importing them from this module.
-export { Types } from "./swift_ffi_runtime.js?v=179e41bc";
+export { Types } from "./swift_ffi_runtime.js";
 /** The runtime type token for `TextMetrics` (generic calls). */
 export const TextMetricsType = {
     encode(w, v) {

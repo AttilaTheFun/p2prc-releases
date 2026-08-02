@@ -17,13 +17,13 @@
   <canvas id="canvas"></canvas>
   <div id="invite-qr" class="qr"></div>
   <div id="answer-qr" class="qr"></div>
-  <script src="./runtime/react.production.min.js?v=d949f1c3"></script>
-  <script src="./runtime/react-dom.production.min.js?v=35f4f974"></script>
-  <script src="./assets/qrcode.js?v=18ae399f"></script>
-  <script src="./assets/qr.js?v=e6766d64"></script>
+  <script src="./runtime/react.production.min.js"></script>
+  <script src="./runtime/react-dom.production.min.js"></script>
+  <script src="./assets/qrcode.js"></script>
+  <script src="./assets/qr.js"></script>
   <script type="module">
-    import { boot } from "./runtime/boot.js?v=685db28e";
-    import { Dependencies } from "./app_bridge.js?v=7be24e5c";
+    import { boot } from "./runtime/boot.js";
+    import { Dependencies } from "./app_bridge.js";
 
     // The host half of the client: WebRTC, localStorage, and the URL. It moves
     // bytes and nothing else — every frame it sends is ciphertext the wasm
@@ -174,12 +174,30 @@
 
     boot({
       canvas: document.getElementById("canvas"),
-      wasmURL: "./app.wasm?v=05d5bea8",
+      wasmURL: "./app.wasm",
       rendererName: new URLSearchParams(location.search).get("renderer") || "react",
       dependencies: { host: Dependencies.p2PRCHost(() => host) },
     }).then((result) => {
       bridge = result.bridge;
       while (queued.length) queued.shift()(bridge);
+      // Drive the renderer every frame.
+      //
+      // State here changes from host callbacks — a WebRTC channel opening, a
+      // frame arriving, a peer's answer landing — all of which happen outside
+      // the renderer's own event loop, and none of which schedule a repaint.
+      // Without this the model updates correctly and the screen never moves,
+      // which looks exactly like a hang. Rendering is diff-then-patch, so an
+      // idle frame costs a tree walk and no DOM work.
+      const draw = () => {
+        try { bridge.uuiRender(); } catch (err) { console.warn("[p2prc] render", err); }
+      };
+      (function frame() { draw(); requestAnimationFrame(frame); })();
+      // requestAnimationFrame is paused outright in a hidden tab, and a peer
+      // can pair with us, send, and disconnect while we are in the background.
+      // A timer keeps those updates painted; browsers throttle it to about a
+      // second when hidden, which is fine for a chat view and costs nothing
+      // while visible because the rAF loop has already drawn the frame.
+      setInterval(() => { if (document.hidden) draw(); }, 250);
     }).catch((error) => {
       console.error(error);
       const pre = document.createElement("pre");

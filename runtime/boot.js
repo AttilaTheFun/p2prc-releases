@@ -4,10 +4,10 @@
 // the runtime. Strings and structs copy at the boundary, so there is no
 // pointer/length or staging-buffer plumbing here.
 
-import { load } from "../app_bridge.js?v=7be24e5c";
-import { createRasterHost } from "./raster.js?v=b562f9c2";
-import { createReactTreeRenderer } from "./react_renderer.js?v=491a32fc";
-import { applyPatch } from "./flat_tree.js?v=5ec0be73";
+import { load } from "../app_bridge.js";
+import { createRasterHost } from "./raster.js";
+import { createReactTreeRenderer } from "./react_renderer.js";
+import { applyPatch } from "./flat_tree.js";
 
 // `rendererName` picks the renderer (docs/renderer_layers.md): "webGPU"
 // (default) binds the self-drawing SwiftGPURenderer; "react" binds the

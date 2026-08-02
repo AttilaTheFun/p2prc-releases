@@ -19,8 +19,8 @@
 //   // or, with hot reload / dynamic delivery:
 //   <UniversalUI provider={appBundleProvider("./app.wasm", { hotReloadURL })} />
 
-import { mountUniversalUI } from "./boot.js?v=685db28e";
-import { packagedBundleProvider } from "./bundle_provider.js?v=ca065710";
+import { mountUniversalUI } from "./boot.js";
+import { packagedBundleProvider } from "./bundle_provider.js";
 
 export function UniversalUI({ provider, wasmURL = "./app.wasm", renderer = "react", style }) {
   const R = window.React;
