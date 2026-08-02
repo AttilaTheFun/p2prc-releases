@@ -17,7 +17,17 @@
   function open() {
     if (opening) return opening;
     opening = new Promise(function (resolve, reject) {
+      var settled = false;
+      // A blocked upgrade (another tab holding the database) leaves this
+      // pending forever. Storage must never be able to hang the app: give up
+      // and run from memory instead.
+      var giveUp = setTimeout(function () {
+        if (!settled) { settled = true; reject(new Error("indexedDB unavailable")); }
+      }, 3000);
       var request = indexedDB.open(DB, VERSION);
+      request.onblocked = function () {
+        if (!settled) { settled = true; clearTimeout(giveUp); reject(new Error("indexedDB blocked")); }
+      };
       request.onupgradeneeded = function () {
         var db = request.result;
         if (!db.objectStoreNames.contains("groups")) {
@@ -31,8 +41,18 @@
           db.createObjectStore("peers", { keyPath: "id" });
         }
       };
-      request.onsuccess = function () { resolve(request.result); };
-      request.onerror = function () { reject(request.error); };
+      request.onsuccess = function () {
+        if (settled) return;
+        settled = true;
+        clearTimeout(giveUp);
+        resolve(request.result);
+      };
+      request.onerror = function () {
+        if (settled) return;
+        settled = true;
+        clearTimeout(giveUp);
+        reject(request.error);
+      };
     });
     return opening;
   }
@@ -62,30 +82,34 @@
     });
   }
 
+  function soft(promise, fallback) {
+    return promise.catch(function () { return fallback; });
+  }
+
   var Store = {
     available: function () { return typeof indexedDB !== "undefined"; },
 
     saveGroup: function (record) {
-      return tx("groups", "readwrite", function (store) { store.put(record); });
+      return soft(tx("groups", "readwrite", function (store) { store.put(record); }), null);
     },
 
-    loadGroups: function () { return all("groups"); },
+    loadGroups: function () { return soft(all("groups"), []); },
 
     /// Events are content-addressed, so re-putting one is a harmless no-op —
     /// which is exactly what a sync that re-delivers old events needs.
     saveEvents: function (events) {
-      return tx("events", "readwrite", function (store) {
+      return soft(tx("events", "readwrite", function (store) {
         for (var i = 0; i < events.length; i++) store.put(events[i]);
-      });
+      }), null);
     },
 
-    loadEvents: function (groupId) { return all("events", "group", groupId); },
+    loadEvents: function (groupId) { return soft(all("events", "group", groupId), []); },
 
     savePeer: function (peer) {
       return tx("peers", "readwrite", function (store) { store.put(peer); });
     },
 
-    loadPeers: function () { return all("peers"); },
+    loadPeers: function () { return soft(all("peers"), []); },
 
     clear: function () {
       return open().then(function (db) {
