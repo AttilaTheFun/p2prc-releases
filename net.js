@@ -80,19 +80,34 @@
     return QRCModel.hash(this.memberId + "|" + name + "|" + Date.now()).then(function (id) {
       var group = new QRCModel.Group({ id: id, name: name, createdBy: self.memberId });
       self.groups[id] = group;
-      // Membership is recorded as events so it merges like everything else.
-      var joins = members.map(function (member) {
-        return QRCModel.makeEvent({
-          group: id, author: self.memberId, kind: "join",
-          parents: [], body: { member: member.id, name: member.name, key: member.key },
-        });
+      // Everything about a group is an event, including its name — a peer
+      // that learns of the group by sync must be able to reconstruct it
+      // without being told anything out of band.
+      var creation = QRCModel.makeEvent({
+        group: id, author: self.memberId, kind: "create",
+        parents: [], body: { name: name },
       });
-      return Promise.all(joins).then(function (events) {
-        group.graph.merge(events);
-        group.applyMembership();
-        return self.rekey(group).then(function () {
-          self.onChange();
-          return group;
+      return creation.then(function (createEvent) {
+        var joins = members.map(function (member) {
+          return QRCModel.makeEvent({
+            group: id, author: self.memberId, kind: "join",
+            parents: [createEvent.id],
+            body: { member: member.id, name: member.name, key: member.key },
+          });
+        });
+        return Promise.all(joins).then(function (joinEvents) {
+          var events = [createEvent].concat(joinEvents);
+          group.graph.merge(events);
+          group.applyMembership();
+          // Tell anyone already connected: they can't ask for what they don't
+          // know exists.
+          events.forEach(function (event) { self.broadcast(event); });
+          return self.persist(group, events).then(function () {
+            return self.rekey(group);
+          }).then(function () {
+            self.onChange();
+            return group;
+          });
         });
       });
     });

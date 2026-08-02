@@ -209,8 +209,13 @@
   /// Replays membership events so every member computes the same roster.
   Group.prototype.applyMembership = function () {
     var members = {};
+    var self = this;
     this.graph.ordered().forEach(function (event) {
-      if (event.kind === "join" || event.kind === "invite") {
+      if (event.kind === "create") {
+        // The name travels as an event, so a peer that learns of this group
+        // by syncing ends up calling it the same thing.
+        if (!self.name && event.body && event.body.name) self.name = event.body.name;
+      } else if (event.kind === "join" || event.kind === "invite") {
         var info = event.body || {};
         if (info.member) {
           members[info.member] = {
