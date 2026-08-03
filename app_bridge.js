@@ -172,6 +172,46 @@ export class SwiftP2PRCHost {
         b0.drop();
         b1.drop();
     }
+    share(text) {
+        const handle = this.borrowHandle();
+        const b0 = stageString(this.runtime, text);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_share", handle, b0.ptr, b0.len);
+        b0.drop();
+    }
+    saveQR(elementID) {
+        const handle = this.borrowHandle();
+        const b0 = stageString(this.runtime, elementID);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_saveQR", handle, b0.ptr, b0.len);
+        b0.drop();
+    }
+    capabilities(requestID) {
+        const handle = this.borrowHandle();
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_capabilities", handle, requestID);
+    }
+    httpGet(requestID, url) {
+        const handle = this.borrowHandle();
+        const b1 = stageString(this.runtime, url);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_httpGet", handle, requestID, b1.ptr, b1.len);
+        b1.drop();
+    }
+    stunLookup(requestID, server) {
+        const handle = this.borrowHandle();
+        const b1 = stageString(this.runtime, server);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_stunLookup", handle, requestID, b1.ptr, b1.len);
+        b1.drop();
+    }
+    startServer(requestID, directory) {
+        const handle = this.borrowHandle();
+        const b1 = stageString(this.runtime, directory);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_startServer", handle, requestID, b1.ptr, b1.len);
+        b1.drop();
+    }
+    publishDirectory(directory) {
+        const handle = this.borrowHandle();
+        const b0 = stageString(this.runtime, directory);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_publishDirectory", handle, b0.ptr, b0.len);
+        b0.drop();
+    }
 }
 export class SwiftGPUWebHost {
     handle;
@@ -456,6 +496,44 @@ function dependencyDispatcher_P2PRCHost(provide) {
                 const a0 = Types.string.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.drawQR(a0, a1);
+                return new Uint8Array(0);
+            }
+            case 11: {
+                const a0 = Types.string.decode(r);
+                impl.share(a0);
+                return new Uint8Array(0);
+            }
+            case 12: {
+                const a0 = Types.string.decode(r);
+                impl.saveQR(a0);
+                return new Uint8Array(0);
+            }
+            case 13: {
+                const a0 = Types.int32.decode(r);
+                impl.capabilities(a0);
+                return new Uint8Array(0);
+            }
+            case 14: {
+                const a0 = Types.int32.decode(r);
+                const a1 = Types.string.decode(r);
+                impl.httpGet(a0, a1);
+                return new Uint8Array(0);
+            }
+            case 15: {
+                const a0 = Types.int32.decode(r);
+                const a1 = Types.string.decode(r);
+                impl.stunLookup(a0, a1);
+                return new Uint8Array(0);
+            }
+            case 16: {
+                const a0 = Types.int32.decode(r);
+                const a1 = Types.string.decode(r);
+                impl.startServer(a0, a1);
+                return new Uint8Array(0);
+            }
+            case 17: {
+                const a0 = Types.string.decode(r);
+                impl.publishDirectory(a0);
                 return new Uint8Array(0);
             }
         }

@@ -199,6 +199,57 @@
       openingHash(requestID) { done(requestID, true, openingHash); },
       setHash(value) { history.replaceState(null, "", "#" + value); },
       publishAnswer(blob) { relay.postMessage({ kind: "answer", blob: blob }); },
+      // --- Networking stack ---------------------------------------------
+      //
+      // Mechanical only. No decisions live here: the guest picks which
+      // bootstrapper to ask, in what order, and whether to fall back to a
+      // public STUN server at all. This side just moves bytes and answers
+      // honestly about what it can do.
+      capabilities(requestID) {
+        done(requestID, true, JSON.stringify({
+          // A tab has no listening socket. This single fact is what makes it
+          // a consumer of the network rather than a sustainer of it.
+          acceptsInbound: false,
+          servesHTTP: false,
+          discoversAddress: true,
+        }));
+      },
+      async httpGet(requestID, url) {
+        try {
+          const response = await fetch(url, { mode: "cors" });
+          done(requestID, response.ok, response.ok ? await response.text() : "");
+        } catch (err) { done(requestID, false, ""); }
+      },
+      async stunLookup(requestID, server) {
+        try {
+          const c = new RTCPeerConnection({ iceServers: [{ urls: "stun:" + server }] });
+          c.createDataChannel("probe");
+          await c.setLocalDescription(await c.createOffer());
+          await gathered(c);
+          const line = (c.localDescription.sdp.split("\r\n")
+            .find((l) => l.includes("typ srflx")) || "").split(" ");
+          c.close();
+          done(requestID, line.length > 5, line.length > 5 ? line[4] + ":" + line[5] : "");
+        } catch (err) { done(requestID, false, ""); }
+      },
+      startServer(requestID) {
+        done(requestID, false, "");
+      },
+      publishDirectory() {},
+
+      share(text) {
+        if (navigator.share) { navigator.share({ text }).catch(() => {}); return; }
+        navigator.clipboard?.writeText(text).catch(() => {});
+      },
+      saveQR(elementID) {
+        const img = document.querySelector("#" + elementID + " img");
+        if (!img) return;
+        const link = document.createElement("a");
+        link.href = img.src;
+        link.download = "p2prc-invite.png";
+        link.click();
+      },
+
       drawQR(elementID, text) {
         if (connected) return;
         const el = document.getElementById(elementID);
