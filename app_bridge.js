@@ -194,6 +194,10 @@ export class SwiftP2PRCHost {
         this.runtime.call("swift_ffi_swiftui_P2PRCHost_httpGet", handle, requestID, b1.ptr, b1.len);
         b1.drop();
     }
+    delay(requestID, ms) {
+        const handle = this.borrowHandle();
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_delay", handle, requestID, ms);
+    }
     stunLookup(requestID, server) {
         const handle = this.borrowHandle();
         const b1 = stageString(this.runtime, server);
@@ -521,17 +525,23 @@ function dependencyDispatcher_P2PRCHost(provide) {
             }
             case 15: {
                 const a0 = Types.int32.decode(r);
-                const a1 = Types.string.decode(r);
-                impl.stunLookup(a0, a1);
+                const a1 = Types.int32.decode(r);
+                impl.delay(a0, a1);
                 return new Uint8Array(0);
             }
             case 16: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
-                impl.startServer(a0, a1);
+                impl.stunLookup(a0, a1);
                 return new Uint8Array(0);
             }
             case 17: {
+                const a0 = Types.int32.decode(r);
+                const a1 = Types.string.decode(r);
+                impl.startServer(a0, a1);
+                return new Uint8Array(0);
+            }
+            case 18: {
                 const a0 = Types.string.decode(r);
                 impl.publishDirectory(a0);
                 return new Uint8Array(0);

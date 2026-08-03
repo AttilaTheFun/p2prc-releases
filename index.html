@@ -220,6 +220,7 @@
           done(requestID, response.ok, response.ok ? await response.text() : "");
         } catch (err) { done(requestID, false, ""); }
       },
+      delay(requestID, ms) { setTimeout(() => done(requestID, true, ""), ms); },
       async stunLookup(requestID, server) {
         try {
           const c = new RTCPeerConnection({ iceServers: [{ urls: "stun:" + server }] });
