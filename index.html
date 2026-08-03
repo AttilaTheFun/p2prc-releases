@@ -8,8 +8,13 @@
     html, body { margin: 0; height: 100%; background: #fff; }
     #canvas { width: 100%; height: 100%; display: block; touch-action: none; }
     #error { font: 14px monospace; color: #b00; padding: 16px; white-space: pre-wrap; }
-    .qr { position: fixed; right: 16px; bottom: 16px; background: #fff; padding: 8px;
-          border: 1px solid #ddd; border-radius: 6px; }
+    /* The QR is host-drawn; the wasm UI frames it. Centered card, sized so
+       the input/link area below stays visible on a phone. */
+    .qr { position: fixed; left: 50%; top: 46%; transform: translate(-50%, -50%);
+          z-index: 10; /* the renderer mounts its own tree after these divs */
+          background: #fff; padding: 10px; border-radius: 16px;
+          box-shadow: 0 8px 30px rgba(0,0,0,.14); }
+    .qr img { display: block; width: min(62vw, 300px); height: auto; image-rendering: pixelated; }
     .qr:empty { display: none; }
   </style>
 </head>
@@ -41,8 +46,20 @@
     // inside boot() — before boot() has returned us the bridge to answer on. So
     // callbacks queue until the bridge exists, then drain in order.
     const queued = [];
+    // Render right after any host callback. A state change that arrives from
+    // the network has nothing to repaint it otherwise, and neither timer is
+    // dependable: requestAnimationFrame is paused outright in a hidden tab,
+    // and Chrome throttles intervals to once a minute once a tab has been
+    // hidden a while. Rendering in the same task as the event sidesteps both.
+    function render() {
+      if (!bridge) return;
+      try { bridge.uuiRender(); } catch (err) { console.warn("[p2prc] render", err); }
+    }
+
     function withBridge(fn) {
-      if (bridge) fn(bridge); else queued.push(fn);
+      if (!bridge) { queued.push(fn); return; }
+      fn(bridge);
+      render();
     }
     const emit = (kind, payload) =>
       withBridge((b) => b.p2prcEvent(kind, String(payload)));
@@ -87,9 +104,25 @@
       });
     });
 
+    // Once the link is up the codes are noise, and on the answering side they
+    // would otherwise cover the conversation. `connected` also suppresses a
+    // late draw: the answer QR is rendered right around the moment the channel
+    // opens, so clearing alone can lose the race.
+    let connected = false;
+    const clearQR = () => {
+      connected = true;
+      for (const id of ["invite-qr", "answer-qr"]) {
+        const el = document.getElementById(id);
+        if (el) el.replaceChildren();
+      }
+    };
+
     function wire(dc) {
       channel = dc;
-      dc.onopen = () => emit("open", "");
+      // A channel handed over by `ondatachannel` can already be open, in which
+      // case `onopen` never fires.
+      if (dc.readyState === "open") { clearQR(); emit("open", ""); }
+      dc.onopen = () => { clearQR(); emit("open", ""); };
       dc.onmessage = (e) => emit("frame", e.data);
       dc.onclose = () => emit("state", "disconnected");
     }
@@ -167,6 +200,7 @@
       setHash(value) { history.replaceState(null, "", "#" + value); },
       publishAnswer(blob) { relay.postMessage({ kind: "answer", blob: blob }); },
       drawQR(elementID, text) {
+        if (connected) return;
         const el = document.getElementById(elementID);
         if (el && window.P2PRCQR) window.P2PRCQR.draw(el, text);
       },
@@ -188,16 +222,9 @@
       // Without this the model updates correctly and the screen never moves,
       // which looks exactly like a hang. Rendering is diff-then-patch, so an
       // idle frame costs a tree walk and no DOM work.
-      const draw = () => {
-        try { bridge.uuiRender(); } catch (err) { console.warn("[p2prc] render", err); }
-      };
-      (function frame() { draw(); requestAnimationFrame(frame); })();
-      // requestAnimationFrame is paused outright in a hidden tab, and a peer
-      // can pair with us, send, and disconnect while we are in the background.
-      // A timer keeps those updates painted; browsers throttle it to about a
-      // second when hidden, which is fine for a chat view and costs nothing
-      // while visible because the rAF loop has already drawn the frame.
-      setInterval(() => { if (document.hidden) draw(); }, 250);
+      // A steady frame loop for animation and text input while visible; the
+      // per-event render above is what keeps a backgrounded tab correct.
+      (function frame() { render(); requestAnimationFrame(frame); })();
     }).catch((error) => {
       console.error(error);
       const pre = document.createElement("pre");
