@@ -267,6 +267,10 @@ export async function boot({
   }
 
   resizeBacking();
+  // System appearance: report `prefers-color-scheme` BEFORE the first frame,
+  // so a dark-mode user never sees a light flash.
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  bridge.uuiSetColorScheme(darkQuery.matches);
   // Runs the app's @main (installing the App) and starts the runtime with
   // this host object under the chosen renderer binding.
   // Size from the mount surface (an embedded container or the full page).
@@ -277,6 +281,11 @@ export async function boot({
   // Scene lifecycle: page visibility maps to `@Environment(\.scenePhase)`.
   document.addEventListener("visibilitychange", () => {
     bridge.uuiSetScenePhase(document.hidden ? "background" : "active");
+  });
+  // System appearance changes: live on every OS/browser toggle (the initial
+  // value was reported before uuiStart above).
+  darkQuery.addEventListener("change", (event) => {
+    bridge.uuiSetColorScheme(event.matches);
   });
   // `.onOpenURL`: the launch URL, plus any the host page dispatches later via
   // `window.dispatchEvent(new CustomEvent("uui:openurl", { detail: url }))`.

@@ -184,6 +184,10 @@ export class SwiftP2PRCHost {
         this.runtime.call("swift_ffi_swiftui_P2PRCHost_saveQR", handle, b0.ptr, b0.len);
         b0.drop();
     }
+    scanQR(requestID) {
+        const handle = this.borrowHandle();
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_scanQR", handle, requestID);
+    }
     capabilities(requestID) {
         const handle = this.borrowHandle();
         this.runtime.call("swift_ffi_swiftui_P2PRCHost_capabilities", handle, requestID);
@@ -514,34 +518,39 @@ function dependencyDispatcher_P2PRCHost(provide) {
             }
             case 13: {
                 const a0 = Types.int32.decode(r);
-                impl.capabilities(a0);
+                impl.scanQR(a0);
                 return new Uint8Array(0);
             }
             case 14: {
+                const a0 = Types.int32.decode(r);
+                impl.capabilities(a0);
+                return new Uint8Array(0);
+            }
+            case 15: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.httpGet(a0, a1);
                 return new Uint8Array(0);
             }
-            case 15: {
+            case 16: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.int32.decode(r);
                 impl.delay(a0, a1);
                 return new Uint8Array(0);
             }
-            case 16: {
+            case 17: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.stunLookup(a0, a1);
                 return new Uint8Array(0);
             }
-            case 17: {
+            case 18: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.startServer(a0, a1);
                 return new Uint8Array(0);
             }
-            case 18: {
+            case 19: {
                 const a0 = Types.string.decode(r);
                 impl.publishDirectory(a0);
                 return new Uint8Array(0);
@@ -749,6 +758,9 @@ export class SwiftUI {
         const b0 = stageString(this.runtime, phase);
         this.runtime.call("swift_ffi_swiftui_uuiSetScenePhase", b0.ptr, b0.len);
         b0.drop();
+    }
+    uuiSetColorScheme(dark) {
+        this.runtime.call("swift_ffi_swiftui_uuiSetColorScheme", dark ? 1 : 0);
     }
     uuiOpenURL(url) {
         const b0 = stageString(this.runtime, url);

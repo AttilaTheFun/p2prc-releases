@@ -25,6 +25,7 @@
   <script src="./runtime/react.production.min.js"></script>
   <script src="./runtime/react-dom.production.min.js"></script>
   <script src="./assets/qrcode.js"></script>
+  <script src="./assets/jsqr.js"></script>
   <script src="./assets/qr.js"></script>
   <script type="module">
     import { boot } from "./runtime/boot.js";
@@ -241,6 +242,48 @@
       share(text) {
         if (navigator.share) { navigator.share({ text }).catch(() => {}); return; }
         navigator.clipboard?.writeText(text).catch(() => {});
+      },
+      // A QR from a picture, decoded entirely in this tab. The file input
+      // is the web's camera bridge: on a phone `capture` opens the camera,
+      // on a laptop it opens the picker. BarcodeDetector where the browser
+      // has one (Chrome), jsQR everywhere else (Safari).
+      scanQR(requestID) {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        input.capture = "environment";
+        input.style.display = "none";
+        document.body.appendChild(input);
+        const finish = (ok, text) => { input.remove(); done(requestID, ok, text || ""); };
+        input.onchange = async () => {
+          const file = input.files && input.files[0];
+          if (!file) return finish(false, "");
+          try {
+            const bitmap = await createImageBitmap(file);
+            if ("BarcodeDetector" in window) {
+              try {
+                const found = await new BarcodeDetector({ formats: ["qr_code"] }).detect(bitmap);
+                if (found.length) return finish(true, found[0].rawValue);
+              } catch (e) { /* fall through to jsQR */ }
+            }
+            // Downscale for jsQR: huge camera frames are slow and no more
+            // decodable than 1200px ones.
+            const scale = Math.min(1, 1200 / Math.max(bitmap.width, bitmap.height));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.round(bitmap.width * scale);
+            canvas.height = Math.round(bitmap.height * scale);
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const hit = window.jsQR && window.jsQR(data.data, canvas.width, canvas.height);
+            finish(!!hit, hit ? hit.data : "");
+          } catch (err) { finish(false, ""); }
+        };
+        // If the picker is dismissed nothing fires; reclaim on refocus.
+        window.addEventListener("focus", () => {
+          setTimeout(() => { if (!input.files || !input.files.length) finish(false, ""); }, 1200);
+        }, { once: true });
+        input.click();
       },
       saveQR(elementID) {
         const img = document.querySelector("#" + elementID + " img");
