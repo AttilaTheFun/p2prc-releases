@@ -220,6 +220,26 @@ export class SwiftP2PRCHost {
         this.runtime.call("swift_ffi_swiftui_P2PRCHost_publishDirectory", handle, b0.ptr, b0.len);
         b0.drop();
     }
+    setIceServers(json) {
+        const handle = this.borrowHandle();
+        const b0 = stageString(this.runtime, json);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_setIceServers", handle, b0.ptr, b0.len);
+        b0.drop();
+    }
+    callStart(requestID) {
+        const handle = this.borrowHandle();
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callStart", handle, requestID);
+    }
+    callApplyRemote(requestID, sdp, isOffer) {
+        const handle = this.borrowHandle();
+        const b1 = stageString(this.runtime, sdp);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callApplyRemote", handle, requestID, b1.ptr, b1.len, isOffer ? 1 : 0);
+        b1.drop();
+    }
+    callEnd() {
+        const handle = this.borrowHandle();
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callEnd", handle);
+    }
 }
 export class SwiftGPUWebHost {
     handle;
@@ -555,6 +575,27 @@ function dependencyDispatcher_P2PRCHost(provide) {
                 impl.publishDirectory(a0);
                 return new Uint8Array(0);
             }
+            case 20: {
+                const a0 = Types.string.decode(r);
+                impl.setIceServers(a0);
+                return new Uint8Array(0);
+            }
+            case 21: {
+                const a0 = Types.int32.decode(r);
+                impl.callStart(a0);
+                return new Uint8Array(0);
+            }
+            case 22: {
+                const a0 = Types.int32.decode(r);
+                const a1 = Types.string.decode(r);
+                const a2 = Types.bool.decode(r);
+                impl.callApplyRemote(a0, a1, a2);
+                return new Uint8Array(0);
+            }
+            case 23: {
+                impl.callEnd();
+                return new Uint8Array(0);
+            }
         }
         throw new SwiftError("unknown method ordinal");
     };
@@ -753,6 +794,19 @@ export class SwiftUI {
     }
     uuiRender() {
         this.runtime.call("swift_ffi_swiftui_uuiRender");
+    }
+    uuiMapSurfaceRender(id, camera, annotations, polygons, polylines, width, height) {
+        const b0 = stageString(this.runtime, id);
+        const b1 = stageString(this.runtime, camera);
+        const b2 = stageString(this.runtime, annotations);
+        const b3 = stageString(this.runtime, polygons);
+        const b4 = stageString(this.runtime, polylines);
+        this.runtime.call("swift_ffi_swiftui_uuiMapSurfaceRender", b0.ptr, b0.len, b1.ptr, b1.len, b2.ptr, b2.len, b3.ptr, b3.len, b4.ptr, b4.len, width, height);
+        b0.drop();
+        b1.drop();
+        b2.drop();
+        b3.drop();
+        b4.drop();
     }
     uuiSetScenePhase(phase) {
         const b0 = stageString(this.runtime, phase);

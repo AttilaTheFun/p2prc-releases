@@ -34,13 +34,17 @@
     // The host half of the client: WebRTC, localStorage, and the URL. It moves
     // bytes and nothing else — every frame it sends is ciphertext the wasm
     // module produced, and no key material ever crosses this boundary.
-    const STUN = [
+    let STUN = [
       { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
     ];
 
     let bridge = null;
-    let pc = null, channel = null;
+    let pc = null, channel = null, localStream = null;
+    // Where the peer's voice comes out. Autoplay is allowed because the
+    // call always follows a user gesture (the call/accept button).
+    const remoteAudio = document.createElement("audio");
+    remoteAudio.autoplay = true;
+    document.body.appendChild(remoteAudio);
     const openingHash = location.hash;   // captured before we ever rewrite it
 
     // The guest starts asking for things during its first render, which happens
@@ -132,8 +136,21 @@
       pc = new RTCPeerConnection({ iceServers: STUN });
       pc.onconnectionstatechange = () => emit("state", pc.connectionState);
       pc.ondatachannel = (e) => wire(e.channel);
+      pc.ontrack = (e) => { remoteAudio.srcObject = e.streams[0] || new MediaStream([e.track]); };
       return pc;
     }
+
+    // Simulate a network drop for testing reconnection: closing the peer
+    // connection is exactly what a WiFi→cellular switch does to the ICE
+    // path. Exposes nothing a user can't already do by closing the tab.
+    window.__p2prcDropConnection = () => {
+      if (channel) { try { channel.close(); } catch (e) {} }
+      if (pc) { try { pc.close(); } catch (e) {} emit("state", "failed"); }
+    };
+    window.__p2prcState = () => ({
+      pc: pc && pc.connectionState, ice: pc && pc.iceConnectionState,
+      sig: pc && pc.signalingState, chan: channel && channel.readyState,
+    });
 
     // The same-origin return path: another tab in this browser receives the
     // answer with no user action. Cross-device pairing uses the reply QR.
@@ -193,6 +210,47 @@
       },
       sendFrame(text) {
         if (channel && channel.readyState === "open") channel.send(text);
+      },
+      setIceServers(json) {
+        try {
+          const urls = JSON.parse(json);
+          if (Array.isArray(urls) && urls.length) STUN = urls.map((u) => ({ urls: u }));
+        } catch (e) {}
+      },
+      // --- Calls: audio on the same pc, renegotiated over the channel. ----
+      async callStart(requestID) {
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          await gathered(pc);
+          done(requestID, true, pc.localDescription.sdp);
+        } catch (err) { done(requestID, false, ""); }
+      },
+      async callApplyRemote(requestID, sdp, isOffer) {
+        try {
+          if (isOffer && !localStream) {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
+          }
+          await pc.setRemoteDescription({ type: isOffer ? "offer" : "answer", sdp });
+          if (!isOffer) return done(requestID, true, "");
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await gathered(pc);
+          done(requestID, true, pc.localDescription.sdp);
+        } catch (err) { done(requestID, false, ""); }
+      },
+      callEnd() {
+        if (localStream) {
+          for (const track of localStream.getTracks()) track.stop();
+          localStream = null;
+        }
+        for (const sender of (pc ? pc.getSenders() : [])) {
+          if (sender.track) { try { pc.removeTrack(sender); } catch (e) {} }
+        }
+        remoteAudio.srcObject = null;
       },
       save(key, value) { localStorage.setItem(scoped(key), value); },
       load(requestID, key) { done(requestID, true, localStorage.getItem(scoped(key)) || ""); },

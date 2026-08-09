@@ -48,6 +48,7 @@ export async function boot({
   // The retained render tree; each renderTree() buffer is a Patch against it.
   let retainedTree = null;
   let treeContainer = null;
+  let mapSurface = null;
   if (react) {
     // React owns the surface: mount a root container where the canvas was.
     treeContainer = document.createElement("div");
@@ -55,9 +56,94 @@ export async function boot({
       "position:absolute;inset:0;overflow:hidden;display:flex;flex-direction:column";
     canvas.style.display = "none";
     (canvas.parentElement || document.body).appendChild(treeContainer);
+    // React-path `Map` host views: the wasm module draws real SwiftMap tiles
+    // (when swift_map is linked, `--config=map`) into the page canvas through
+    // swift_gpu's WebGPU executor; the canvas is parked INSIDE the map
+    // element so later ZStack layers (the map's DOM controls) stack above
+    // it. One live map surface at a time — matching the one page canvas.
+    mapSurface = {
+      el: null,
+      node: null,
+      starting: false,
+      detachTimer: 0,
+      attach(el, node) {
+        if (el) {
+          clearTimeout(this.detachTimer);
+          this.node = node;
+          if (el !== this.el) {
+            this.el = el;
+            canvas.style.cssText =
+              "position:absolute;inset:0;width:100%;height:100%;display:block";
+            el.appendChild(canvas);
+          }
+          this.draw();
+        } else {
+          // React re-runs ref callbacks (null, then the element) on every
+          // render; only a real unmount — no synchronous re-attach — should
+          // reclaim the canvas.
+          this.detachTimer = setTimeout(() => {
+            this.el = null;
+            this.node = null;
+            canvas.remove();
+            canvas.style.display = "none";
+          }, 0);
+        }
+      },
+      async ensure() {
+        if (gpuHost || this.starting) return;
+        this.starting = true;
+        try {
+          // Tiles ride the image machinery (imageInfo/rasterize), which the
+          // React path otherwise never needs — create it with the surface.
+          if (!raster) {
+            raster = createRasterHost({
+              scale: window.devicePixelRatio || 1,
+              invalidate: () => scheduleRender(),
+            });
+          }
+          const { createSwiftGPUHost } = await import("./swift_gpu_webgpu.js");
+          gpuHost = await createSwiftGPUHost(canvas);
+          bridge.gpuConnect(gpuHost);
+          bridge.uuiSetDisplayScale(window.devicePixelRatio || 1);
+          this.draw();
+        } catch (err) {
+          // No WebGPU (older browser): leave a legible pane instead of a
+          // dead canvas; the map's DOM controls still render above it.
+          console.warn("[map] WebGPU unavailable — map tiles disabled:", err);
+          if (this.el) {
+            canvas.remove();
+            canvas.style.display = "none";
+            this.el.style.cssText +=
+              ";display:grid;place-items:center;background:#e9e5dc;" +
+              "color:#8a8377;font:14px -apple-system,sans-serif";
+            this.el.textContent = "Map tiles need WebGPU";
+          }
+        }
+      },
+      draw() {
+        if (!this.el || !this.node || !bridge) return;
+        if (!gpuHost) {
+          this.ensure();
+          return;
+        }
+        const rect = this.el.getBoundingClientRect();
+        if (rect.width < 2 || rect.height < 2) return;
+        const scale = window.devicePixelRatio || 1;
+        const w = Math.max(1, Math.round(rect.width * scale));
+        const h = Math.max(1, Math.round(rect.height * scale));
+        if (canvas.width !== w) canvas.width = w;
+        if (canvas.height !== h) canvas.height = h;
+        const p = this.node.params || {};
+        bridge.uuiMapSurfaceRender(
+          this.node.edit || "map", this.node.v || "",
+          p.annotations || "", p.polygons || "", p.polylines || "",
+          rect.width, rect.height);
+      },
+    };
     reactTree = createReactTreeRenderer({
       container: treeContainer,
       sendEvent: (id, value) => bridge.uuiHostEvent(id, value),
+      mapSurface,
     });
     // Event injection for headless smoke tests (cf. __uuiHostViews).
     window.__uuiSendEvent = (id, value) => bridge.uuiHostEvent(id, value);
@@ -208,6 +294,12 @@ export async function boot({
       darkMode = dark;
       // Makes native form controls (<select>/<input>) and scrollbars adapt.
       document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+      // The window background behind the tree: the self-drawing renderers
+      // paint Color.windowBackground themselves; under a component-system
+      // renderer the PAGE is that surface, so mirror the same values
+      // (light #ffffff / dark 0.07,0.07,0.08). Driven from here — not a CSS
+      // media query — so an in-app .preferredColorScheme override matches too.
+      document.body.style.background = darkMode ? "rgb(18, 18, 20)" : "#ffffff";
       textOverlay.style.background = darkMode ? "#1c1c1e" : "#fff";
       textOverlay.style.color = darkMode ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)";
     },
@@ -245,6 +337,9 @@ export async function boot({
       retainedTree = applyPatch(retainedTree, tree);
       window.__uuiLastTree = JSON.stringify(retainedTree); // for headless smoke tests
       reactTree.render(retainedTree);
+      // A mounted map redraws with every tree frame (camera moves arrive as
+      // new frames; tile completions schedule one through the image drain).
+      if (mapSurface && mapSurface.el) mapSurface.draw();
     },
   };
 
@@ -295,6 +390,9 @@ export async function boot({
   });
 
   if (react) {
+    window.addEventListener("resize", () => {
+      bridge.uuiResize(window.innerWidth, window.innerHeight);
+    });
     return { bridge, container: treeContainer };
   }
 

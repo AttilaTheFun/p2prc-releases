@@ -12,7 +12,7 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
-export function createReactTreeRenderer({ container, sendEvent, assetBase = "assets/" }) {
+export function createReactTreeRenderer({ container, sendEvent, assetBase = "assets/", mapSurface = null }) {
   const R = window.React;
   const h = R.createElement;
   const root = window.ReactDOM.createRoot(container);
@@ -75,7 +75,10 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     if (n.bg) s.background = rgba(n.bg);
     const gradient = gradientCSS(n);
     if (gradient) s.background = gradient;
-    if (n.radius) { s.borderRadius = n.radius; }
+    // cornerRadius has CLIP semantics (SwiftUI clips to the rounded rect);
+    // without overflow:hidden an oversized child (a fill image) pokes past
+    // the rounded corners and the frame itself.
+    if (n.radius) { s.borderRadius = n.radius; s.overflow = "hidden"; }
     if (n.opacity != null) s.opacity = n.opacity;
     if (n.shadow) {
       s.boxShadow = `${n.shadow.x}px ${n.shadow.y}px ${n.shadow.radius * 2}px ${rgba(n.shadow.color)}`;
@@ -190,6 +193,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, tabs);
   }
 
+  // Pointer-drag state for the `map` host view (one pointer pans at a time).
+  const mapDrag = { active: false, x: 0, y: 0 };
+
   function hostView(n, props, kids) {
     const p = n.params || {};
     switch (n.view) {
@@ -225,6 +231,38 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         props.src = n.v;
         props.style = { ...props.style, border: "none", width: "100%", height: "100%", flex: 1, alignSelf: "stretch" };
         return h("iframe", props);
+      case "map": {
+        // Real SwiftMap tiles: the wasm module draws into the page canvas,
+        // which the boot layer parks inside this element (mapSurface). This
+        // element owns the gestures, translated to the same camera-binding
+        // commands the self-drawing renderers send ("pan:dx,dy" /
+        // "zoom:dy,ax,ay,w,h" — MapSupport.applyGesture).
+        props.style = {
+          ...props.style, width: "100%", height: "100%", flex: 1,
+          alignSelf: "stretch", position: "relative", overflow: "hidden",
+          touchAction: "none",
+        };
+        if (mapSurface) props.ref = (el) => mapSurface.attach(el, n);
+        props.onPointerDown = (e) => {
+          mapDrag.active = true;
+          mapDrag.x = e.clientX;
+          mapDrag.y = e.clientY;
+          e.currentTarget.setPointerCapture(e.pointerId);
+        };
+        props.onPointerMove = (e) => {
+          if (!mapDrag.active) return;
+          sendEvent(n.edit, `pan:${e.clientX - mapDrag.x},${e.clientY - mapDrag.y}`);
+          mapDrag.x = e.clientX;
+          mapDrag.y = e.clientY;
+        };
+        props.onPointerUp = () => { mapDrag.active = false; };
+        props.onWheel = (e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          sendEvent(n.edit,
+            `zoom:${e.deltaY},${e.clientX - r.left},${e.clientY - r.top},${r.width},${r.height}`);
+        };
+        return h("div", props);
+      }
       case "video":
         props.src = n.v;
         props.controls = true;
@@ -335,7 +373,13 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     if (parentAxis === "h" && n.width != null) s.flexShrink = 0;
     if (parentAxis === "v" && n.height != null) s.flexShrink = 0;
     const childAxis = n.k === "stack" ? n.axis : "v";
-    let kids = (n.ch || []).map((c, i) => render(c, i, childAxis));
+    // Key children by kind (and stack axis / host-view kind), not bare index:
+    // when navigation swaps a whole subtree, a same-position node of a
+    // different kind must REMOUNT, not be incrementally patched — React's
+    // style diffing across such transitions has left stale inline styles
+    // (e.g. a dropped flex-grow centering a re-visited pane).
+    let kids = (n.ch || []).map((c, i) =>
+      render(c, `${i}:${c.k}${c.axis || ""}${c.view || ""}`, childAxis));
 
     switch (n.k) {
       case "stack": {
@@ -354,6 +398,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
                 minWidth: 0, minHeight: 0,
                 width: c.growW ? "100%" : undefined,
                 height: c.growH ? "100%" : undefined,
+                // Each layer stacks above the previous even when an earlier
+                // layer contains positioned content (the map's canvas).
+                position: "relative", zIndex: i,
               },
             }, kid);
           });
@@ -403,6 +450,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         const src = /^(https?:|data:|blob:)/.test(n.src) ? n.src : assetBase + n.src + (n.src.includes(".") ? "" : ".png");
         props.src = src;
         s.objectFit = n.fit ? "contain" : "cover";
+        // scaledToFill: fill the frame box and crop (matching real SwiftUI
+        // and the self-drawing renderers) — a bare <img> would render at its
+        // natural size and overflow the frame into neighboring content. An
+        // explicit propagated frame size (n.width/n.height) wins.
+        if (n.resizable && !n.fit) {
+          if (n.width == null) s.width = "100%";
+          if (n.height == null) s.height = "100%";
+        }
         if (!n.resizable && n.width == null) s.maxWidth = "100%";
         if (n.width == null && n.height == null) { s.minWidth = 0; s.minHeight = 0; }
         return h("img", props);
