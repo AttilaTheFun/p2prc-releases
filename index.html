@@ -355,7 +355,11 @@
       drawQR(elementID, text) {
         if (connected) return;
         const el = document.getElementById(elementID);
-        if (el && window.P2PRCQR) window.P2PRCQR.draw(el, text);
+        if (!el) return;
+        // Empty text means "clear it" — the client sends this when a pairing
+        // is cancelled, so the code doesn't linger over the start screen.
+        if (!text) { el.replaceChildren(); return; }
+        if (window.P2PRCQR) window.P2PRCQR.draw(el, text);
       },
     };
 
