@@ -108,26 +108,40 @@ export class SwiftP2PRCHost {
     [Symbol.dispose]() {
         this.close();
     }
-    createOffer(requestID) {
+    createOffer(requestID, peer) {
         const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_createOffer", handle, requestID);
-    }
-    acceptOffer(requestID, blob) {
-        const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, blob);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_acceptOffer", handle, requestID, b1.ptr, b1.len);
+        const b1 = stageString(this.runtime, peer);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_createOffer", handle, requestID, b1.ptr, b1.len);
         b1.drop();
     }
-    acceptAnswer(requestID, blob) {
+    acceptOffer(requestID, peer, blob) {
         const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, blob);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_acceptAnswer", handle, requestID, b1.ptr, b1.len);
+        const b1 = stageString(this.runtime, peer);
+        const b2 = stageString(this.runtime, blob);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_acceptOffer", handle, requestID, b1.ptr, b1.len, b2.ptr, b2.len);
+        b1.drop();
+        b2.drop();
+    }
+    acceptAnswer(requestID, peer, blob) {
+        const handle = this.borrowHandle();
+        const b1 = stageString(this.runtime, peer);
+        const b2 = stageString(this.runtime, blob);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_acceptAnswer", handle, requestID, b1.ptr, b1.len, b2.ptr, b2.len);
+        b1.drop();
+        b2.drop();
+    }
+    sendFrame(peer, text) {
+        const handle = this.borrowHandle();
+        const b0 = stageString(this.runtime, peer);
+        const b1 = stageString(this.runtime, text);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_sendFrame", handle, b0.ptr, b0.len, b1.ptr, b1.len);
+        b0.drop();
         b1.drop();
     }
-    sendFrame(text) {
+    closeConnection(peer) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, text);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_sendFrame", handle, b0.ptr, b0.len);
+        const b0 = stageString(this.runtime, peer);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_closeConnection", handle, b0.ptr, b0.len);
         b0.drop();
     }
     save(key, value) {
@@ -226,19 +240,25 @@ export class SwiftP2PRCHost {
         this.runtime.call("swift_ffi_swiftui_P2PRCHost_setIceServers", handle, b0.ptr, b0.len);
         b0.drop();
     }
-    callStart(requestID) {
+    callStart(requestID, peer) {
         const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callStart", handle, requestID);
-    }
-    callApplyRemote(requestID, sdp, isOffer) {
-        const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, sdp);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callApplyRemote", handle, requestID, b1.ptr, b1.len, isOffer ? 1 : 0);
+        const b1 = stageString(this.runtime, peer);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callStart", handle, requestID, b1.ptr, b1.len);
         b1.drop();
     }
-    callEnd() {
+    callApplyRemote(requestID, peer, sdp, isOffer) {
         const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callEnd", handle);
+        const b1 = stageString(this.runtime, peer);
+        const b2 = stageString(this.runtime, sdp);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callApplyRemote", handle, requestID, b1.ptr, b1.len, b2.ptr, b2.len, isOffer ? 1 : 0);
+        b1.drop();
+        b2.drop();
+    }
+    callEnd(peer) {
+        const handle = this.borrowHandle();
+        const b0 = stageString(this.runtime, peer);
+        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callEnd", handle, b0.ptr, b0.len);
+        b0.drop();
     }
 }
 export class SwiftGPUWebHost {
@@ -468,132 +488,144 @@ function dependencyDispatcher_P2PRCHost(provide) {
         switch (Types.int32.decode(r)) {
             case 0: {
                 const a0 = Types.int32.decode(r);
-                impl.createOffer(a0);
+                const a1 = Types.string.decode(r);
+                impl.createOffer(a0, a1);
                 return new Uint8Array(0);
             }
             case 1: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
-                impl.acceptOffer(a0, a1);
+                const a2 = Types.string.decode(r);
+                impl.acceptOffer(a0, a1, a2);
                 return new Uint8Array(0);
             }
             case 2: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
-                impl.acceptAnswer(a0, a1);
+                const a2 = Types.string.decode(r);
+                impl.acceptAnswer(a0, a1, a2);
                 return new Uint8Array(0);
             }
             case 3: {
                 const a0 = Types.string.decode(r);
-                impl.sendFrame(a0);
+                const a1 = Types.string.decode(r);
+                impl.sendFrame(a0, a1);
                 return new Uint8Array(0);
             }
             case 4: {
+                const a0 = Types.string.decode(r);
+                impl.closeConnection(a0);
+                return new Uint8Array(0);
+            }
+            case 5: {
                 const a0 = Types.string.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.save(a0, a1);
                 return new Uint8Array(0);
             }
-            case 5: {
+            case 6: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.load(a0, a1);
                 return new Uint8Array(0);
             }
-            case 6: {
+            case 7: {
                 const a0 = Types.int32.decode(r);
                 impl.pageURL(a0);
                 return new Uint8Array(0);
             }
-            case 7: {
+            case 8: {
                 const a0 = Types.int32.decode(r);
                 impl.openingHash(a0);
                 return new Uint8Array(0);
             }
-            case 8: {
+            case 9: {
                 const a0 = Types.string.decode(r);
                 impl.setHash(a0);
                 return new Uint8Array(0);
             }
-            case 9: {
+            case 10: {
                 const a0 = Types.string.decode(r);
                 impl.publishAnswer(a0);
                 return new Uint8Array(0);
             }
-            case 10: {
+            case 11: {
                 const a0 = Types.string.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.drawQR(a0, a1);
                 return new Uint8Array(0);
             }
-            case 11: {
+            case 12: {
                 const a0 = Types.string.decode(r);
                 impl.share(a0);
                 return new Uint8Array(0);
             }
-            case 12: {
+            case 13: {
                 const a0 = Types.string.decode(r);
                 impl.saveQR(a0);
                 return new Uint8Array(0);
             }
-            case 13: {
+            case 14: {
                 const a0 = Types.int32.decode(r);
                 impl.scanQR(a0);
                 return new Uint8Array(0);
             }
-            case 14: {
+            case 15: {
                 const a0 = Types.int32.decode(r);
                 impl.capabilities(a0);
                 return new Uint8Array(0);
             }
-            case 15: {
+            case 16: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.httpGet(a0, a1);
                 return new Uint8Array(0);
             }
-            case 16: {
+            case 17: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.int32.decode(r);
                 impl.delay(a0, a1);
                 return new Uint8Array(0);
             }
-            case 17: {
+            case 18: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.stunLookup(a0, a1);
                 return new Uint8Array(0);
             }
-            case 18: {
+            case 19: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.startServer(a0, a1);
                 return new Uint8Array(0);
             }
-            case 19: {
+            case 20: {
                 const a0 = Types.string.decode(r);
                 impl.publishDirectory(a0);
                 return new Uint8Array(0);
             }
-            case 20: {
+            case 21: {
                 const a0 = Types.string.decode(r);
                 impl.setIceServers(a0);
-                return new Uint8Array(0);
-            }
-            case 21: {
-                const a0 = Types.int32.decode(r);
-                impl.callStart(a0);
                 return new Uint8Array(0);
             }
             case 22: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
-                const a2 = Types.bool.decode(r);
-                impl.callApplyRemote(a0, a1, a2);
+                impl.callStart(a0, a1);
                 return new Uint8Array(0);
             }
             case 23: {
-                impl.callEnd();
+                const a0 = Types.int32.decode(r);
+                const a1 = Types.string.decode(r);
+                const a2 = Types.string.decode(r);
+                const a3 = Types.bool.decode(r);
+                impl.callApplyRemote(a0, a1, a2, a3);
+                return new Uint8Array(0);
+            }
+            case 24: {
+                const a0 = Types.string.decode(r);
+                impl.callEnd(a0);
                 return new Uint8Array(0);
             }
         }

@@ -39,9 +39,13 @@
     ];
 
     let bridge = null;
-    let pc = null, channel = null, localStream = null;
-    // Where the peer's voice comes out. Autoplay is allowed because the
-    // call always follows a user gesture (the call/accept button).
+    // One connection per peer id — an opaque handle the guest chooses — so
+    // several conversations can be live at once. Each entry holds its own
+    // RTCPeerConnection, data channel, and (during a call) microphone stream.
+    const conns = new Map();
+    // Where the peer's voice comes out. One element: there is one active call
+    // at a time. Autoplay is allowed because the call always follows a user
+    // gesture (the call/accept button).
     const remoteAudio = document.createElement("audio");
     remoteAudio.autoplay = true;
     document.body.appendChild(remoteAudio);
@@ -122,35 +126,52 @@
       }
     };
 
-    function wire(dc) {
-      channel = dc;
+    function wire(peer, dc) {
+      const entry = conns.get(peer);
+      if (entry) entry.channel = dc;
       // A channel handed over by `ondatachannel` can already be open, in which
       // case `onopen` never fires.
-      if (dc.readyState === "open") { clearQR(); emit("open", ""); }
-      dc.onopen = () => { clearQR(); emit("open", ""); };
-      dc.onmessage = (e) => emit("frame", e.data);
-      dc.onclose = () => emit("state", "disconnected");
+      if (dc.readyState === "open") { clearQR(); emit("open", peer); }
+      dc.onopen = () => { clearQR(); emit("open", peer); };
+      dc.onmessage = (e) => emit("frame", peer + " " + e.data);
+      dc.onclose = () => emit("state", peer + " disconnected");
     }
 
-    function newConnection() {
-      pc = new RTCPeerConnection({ iceServers: STUN });
-      pc.onconnectionstatechange = () => emit("state", pc.connectionState);
-      pc.ondatachannel = (e) => wire(e.channel);
+    function closeEntry(peer) {
+      const entry = conns.get(peer);
+      if (!entry) return;
+      conns.delete(peer);
+      if (entry.localStream) for (const t of entry.localStream.getTracks()) t.stop();
+      if (entry.channel) { try { entry.channel.close(); } catch (e) {} }
+      try { entry.pc.close(); } catch (e) {}
+    }
+
+    function newConnection(peer) {
+      closeEntry(peer);
+      const pc = new RTCPeerConnection({ iceServers: STUN });
+      conns.set(peer, { pc, channel: null, localStream: null });
+      pc.onconnectionstatechange = () => emit("state", peer + " " + pc.connectionState);
+      pc.ondatachannel = (e) => wire(peer, e.channel);
       pc.ontrack = (e) => { remoteAudio.srcObject = e.streams[0] || new MediaStream([e.track]); };
       return pc;
     }
 
     // Simulate a network drop for testing reconnection: closing the peer
-    // connection is exactly what a WiFi→cellular switch does to the ICE
+    // connections is exactly what a WiFi→cellular switch does to the ICE
     // path. Exposes nothing a user can't already do by closing the tab.
     window.__p2prcDropConnection = () => {
-      if (channel) { try { channel.close(); } catch (e) {} }
-      if (pc) { try { pc.close(); } catch (e) {} emit("state", "failed"); }
+      for (const [peer, entry] of conns) {
+        if (entry.channel) { try { entry.channel.close(); } catch (e) {} }
+        try { entry.pc.close(); } catch (e) {}
+        emit("state", peer + " failed");
+      }
     };
-    window.__p2prcState = () => ({
-      pc: pc && pc.connectionState, ice: pc && pc.iceConnectionState,
-      sig: pc && pc.signalingState, chan: channel && channel.readyState,
-    });
+    window.__p2prcState = () => Object.fromEntries(
+      [...conns].map(([peer, e]) => [peer, {
+        pc: e.pc.connectionState, ice: e.pc.iceConnectionState,
+        sig: e.pc.signalingState, chan: e.channel && e.channel.readyState,
+      }])
+    );
 
     // The same-origin return path: another tab in this browser receives the
     // answer with no user action. Cross-device pairing uses the reply QR.
@@ -184,33 +205,37 @@
     };
 
     const host = {
-      async createOffer(requestID) {
+      async createOffer(requestID, peer) {
         try {
-          const c = newConnection();
-          wire(c.createDataChannel("p2prc", { ordered: true }));
+          const c = newConnection(peer);
+          wire(peer, c.createDataChannel("p2prc", { ordered: true }));
           await c.setLocalDescription(await c.createOffer());
           await gathered(c);
           done(requestID, true, await pack(slim(c.localDescription.sdp)));
         } catch (err) { done(requestID, false, err.message); }
       },
-      async acceptOffer(requestID, blob) {
+      async acceptOffer(requestID, peer, blob) {
         try {
-          const c = newConnection();
+          const c = newConnection(peer);
           await c.setRemoteDescription({ type: "offer", sdp: await unpack(blob) });
           await c.setLocalDescription(await c.createAnswer());
           await gathered(c);
           done(requestID, true, await pack(slim(c.localDescription.sdp)));
         } catch (err) { done(requestID, false, err.message); }
       },
-      async acceptAnswer(requestID, blob) {
+      async acceptAnswer(requestID, peer, blob) {
         try {
-          await pc.setRemoteDescription({ type: "answer", sdp: await unpack(blob) });
+          const entry = conns.get(peer);
+          if (!entry) return done(requestID, false, "no connection");
+          await entry.pc.setRemoteDescription({ type: "answer", sdp: await unpack(blob) });
           done(requestID, true, "");
         } catch (err) { emit("error", err.message); }
       },
-      sendFrame(text) {
-        if (channel && channel.readyState === "open") channel.send(text);
+      sendFrame(peer, text) {
+        const entry = conns.get(peer);
+        if (entry && entry.channel && entry.channel.readyState === "open") entry.channel.send(text);
       },
+      closeConnection(peer) { closeEntry(peer); },
       setIceServers(json) {
         try {
           const urls = JSON.parse(json);
@@ -218,37 +243,43 @@
         } catch (e) {}
       },
       // --- Calls: audio on the same pc, renegotiated over the channel. ----
-      async callStart(requestID) {
+      async callStart(requestID, peer) {
         try {
-          localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          await gathered(pc);
-          done(requestID, true, pc.localDescription.sdp);
+          const entry = conns.get(peer);
+          if (!entry) return done(requestID, false, "");
+          entry.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          for (const track of entry.localStream.getTracks()) entry.pc.addTrack(track, entry.localStream);
+          const offer = await entry.pc.createOffer();
+          await entry.pc.setLocalDescription(offer);
+          await gathered(entry.pc);
+          done(requestID, true, entry.pc.localDescription.sdp);
         } catch (err) { done(requestID, false, ""); }
       },
-      async callApplyRemote(requestID, sdp, isOffer) {
+      async callApplyRemote(requestID, peer, sdp, isOffer) {
         try {
-          if (isOffer && !localStream) {
-            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
+          const entry = conns.get(peer);
+          if (!entry) return done(requestID, false, "");
+          if (isOffer && !entry.localStream) {
+            entry.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            for (const track of entry.localStream.getTracks()) entry.pc.addTrack(track, entry.localStream);
           }
-          await pc.setRemoteDescription({ type: isOffer ? "offer" : "answer", sdp });
+          await entry.pc.setRemoteDescription({ type: isOffer ? "offer" : "answer", sdp });
           if (!isOffer) return done(requestID, true, "");
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          await gathered(pc);
-          done(requestID, true, pc.localDescription.sdp);
+          const answer = await entry.pc.createAnswer();
+          await entry.pc.setLocalDescription(answer);
+          await gathered(entry.pc);
+          done(requestID, true, entry.pc.localDescription.sdp);
         } catch (err) { done(requestID, false, ""); }
       },
-      callEnd() {
-        if (localStream) {
-          for (const track of localStream.getTracks()) track.stop();
-          localStream = null;
+      callEnd(peer) {
+        const entry = conns.get(peer);
+        if (!entry) return;
+        if (entry.localStream) {
+          for (const track of entry.localStream.getTracks()) track.stop();
+          entry.localStream = null;
         }
-        for (const sender of (pc ? pc.getSenders() : [])) {
-          if (sender.track) { try { pc.removeTrack(sender); } catch (e) {} }
+        for (const sender of entry.pc.getSenders()) {
+          if (sender.track) { try { entry.pc.removeTrack(sender); } catch (e) {} }
         }
         remoteAudio.srcObject = null;
       },
@@ -365,7 +396,10 @@
 
     boot({
       canvas: document.getElementById("canvas"),
-      wasmURL: "./app.wasm",
+      // Local development serves without cache headers, and a stale cached
+      // module quietly runs old client logic against new HTML. Bust it there;
+      // the published site relies on normal HTTP caching.
+      wasmURL: "./app.wasm" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
       rendererName: new URLSearchParams(location.search).get("renderer") || "react",
       dependencies: { host: Dependencies.p2PRCHost(() => host) },
     }).then((result) => {

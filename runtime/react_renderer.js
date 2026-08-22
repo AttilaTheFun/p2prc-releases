@@ -282,18 +282,26 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
 
   function presentation(n, kids) {
     const isAlert = n.style === "alert";
+    // Panel chrome colors ride the node, scheme-resolved by the serializer
+    // (Color.secondaryBackground / Color.primary) — never hardcode a light
+    // palette here, or dark-scheme presented content renders white-on-white.
+    const panelBg = rgba(n.bg) || "#fff";
+    const headColor = n.color ? rgba(n.color) : undefined;
+    const messageColor = n.color
+      ? rgba([n.color[0], n.color[1], n.color[2], n.color[3] * 0.65])
+      : "rgba(0,0,0,0.6)";
     if (isAlert) {
       const head = [];
       if (n.title) {
         head.push(h("div", {
           key: "t",
-          style: { fontWeight: 600, fontSize: 17, textAlign: "center" },
+          style: { fontWeight: 600, fontSize: 17, textAlign: "center", color: headColor },
         }, n.title));
       }
       if (n.message) {
         head.push(h("div", {
           key: "m",
-          style: { fontSize: 14, color: "rgba(0,0,0,0.6)", textAlign: "center" },
+          style: { fontSize: 14, color: messageColor, textAlign: "center" },
         }, n.message));
       }
       kids = [h("div", {
@@ -315,8 +323,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, h("div", {
       onClick: (e) => e.stopPropagation(),
       style: isAlert
-        ? { background: "#fff", borderRadius: 14, minWidth: 280, maxWidth: 420, padding: 20, boxShadow: "0 12px 40px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", alignItems: "center" }
-        : { background: "#fff", borderTopLeftRadius: 14, borderTopRightRadius: 14, width: "100%", maxWidth: 640, maxHeight: "85%", overflowY: "auto", padding: 16, boxShadow: "0 -8px 32px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", alignItems: "center" },
+        ? { background: panelBg, borderRadius: 14, minWidth: 280, maxWidth: 420, padding: 20, boxShadow: "0 12px 40px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", alignItems: "center" }
+        : { background: panelBg, borderTopLeftRadius: 14, borderTopRightRadius: 14, width: "100%", maxWidth: 640, maxHeight: "85%", overflowY: "auto", padding: 16, boxShadow: "0 -8px 32px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", alignItems: "center" },
     }, kids));
   }
 
