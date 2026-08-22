@@ -102,15 +102,41 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   }
 
   // A text input holding focus-local state so re-renders from Swift don't
-  // reset the caret; external value changes apply while unfocused.
+  // reset the caret; external value changes apply while unfocused. The
+  // vertical-axis form (`TextField(_:text:axis: .vertical)`, params.axis "v")
+  // renders a textarea that grows with its content between minLines and
+  // maxLines (`.lineLimit(1...6)`), then scrolls internally.
   function TextInput({ n }) {
     const [value, setValue] = R.useState(n.v || "");
     const focused = R.useRef(false);
+    const areaRef = R.useRef(null);
     R.useEffect(() => {
       if (!focused.current) setValue(n.v || "");
     }, [n.v]);
-    return h("input", {
-      type: n.searchStyle ? "search" : "text",
+    const p = n.params || {};
+    const multiline = p.axis === "v";
+    const lineHeight = (n.size || 15) * 1.35;
+    const fit = () => {
+      const el = areaRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      const max = Number(p.maxLines || 5) * lineHeight + 14;
+      el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+      el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+    };
+    R.useLayoutEffect(() => { if (multiline) fit(); });
+    const style = {
+      ...(n.baseStyle || {}),
+      fontSize: n.size || 15,
+      padding: "7px 10px",
+      border: "1px solid rgba(120,120,128,0.35)",
+      borderRadius: 8,
+      outline: "none",
+      background: "rgba(120,120,128,0.08)",
+      minWidth: 0,
+      alignSelf: "stretch",
+    };
+    const shared = {
       value,
       placeholder: n.placeholder,
       onFocus: () => { focused.current = true; },
@@ -119,37 +145,53 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         setValue(e.target.value);
         if (n.edit) sendEvent(n.edit, e.target.value);
       },
-      style: {
-        ...(n.baseStyle || {}),
-        fontSize: n.size || 15,
-        padding: "7px 10px",
-        border: "1px solid rgba(120,120,128,0.35)",
-        borderRadius: 8,
-        outline: "none",
-        background: "rgba(120,120,128,0.08)",
-        minWidth: 0,
-        alignSelf: "stretch",
-      },
-    });
+    };
+    if (multiline) {
+      return h("textarea", {
+        ...shared,
+        ref: areaRef,
+        rows: Number(p.minLines || 1),
+        style: {
+          ...style,
+          lineHeight: `${lineHeight}px`,
+          resize: "none",
+          fontFamily: "inherit",
+        },
+      });
+    }
+    return h("input", { ...shared, type: n.searchStyle ? "search" : "text", style });
   }
 
   function navBar(n) {
     const p = n.params || {};
+    const dark = p.dark === "1";
     const bar = {
       display: "flex", alignItems: "center", width: "100%", height: 44, flex: "none",
-      background: "rgba(249,249,249,0.94)", backdropFilter: "blur(8px)",
-      borderBottom: "1px solid rgba(0,0,0,0.12)",
+      background: dark ? "rgba(28,28,30,0.94)" : "rgba(249,249,249,0.94)",
+      backdropFilter: "blur(8px)",
+      borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
+      color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
       fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
     };
     const button = {
       border: "none", background: "none", color: "#0a84ff", fontSize: 16,
-      cursor: "pointer", padding: "0 12px", flex: "0 0 auto", minWidth: 64,
+      cursor: "pointer", padding: "0 10px", flex: "0 0 auto",
     };
+    // Toolbar items (`ToolbarItem(placement:)`): newline-joined title lists.
+    const split = (key) => (p[key] ? p[key].split("\n") : []);
+    const leading = split("leading");
+    const trailing = split("trailingItems");
+    // Symmetric side clusters keep the title centered.
+    const side = { display: "flex", alignItems: "center", minWidth: 64, flex: "0 0 auto" };
     return h("div", { style: bar },
-      h("button", {
-        style: { ...button, textAlign: "left", visibility: p.back === "1" ? "visible" : "hidden" },
-        onClick: () => sendEvent(n.edit, "back"),
-      }, "‹ Back"),
+      h("div", { style: side },
+        p.back === "1"
+          ? h("button", { key: "back", style: button, onClick: () => sendEvent(n.edit, "back") }, "‹ Back")
+          : null,
+        leading.map((title, i) => h("button", {
+          key: `l${i}`, style: button,
+          onClick: () => sendEvent(n.edit, `leading:${i}`),
+        }, title))),
       h("div", {
         style: {
           flex: 1, textAlign: "center", fontWeight: 600, fontSize: 16,
@@ -157,10 +199,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           opacity: p.large === "1" ? Number(p.inlineAlpha || 1) : 1,
         },
       }, p.title || ""),
-      h("button", {
-        style: { ...button, textAlign: "right", visibility: p.trailing ? "visible" : "hidden" },
-        onClick: () => sendEvent(n.edit, "trailing"),
-      }, p.trailing || ""));
+      h("div", { style: { ...side, justifyContent: "flex-end" } },
+        trailing.map((title, i) => h("button", {
+          key: `t${i}`, style: button,
+          onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
+        }, title))));
   }
 
   function tabBar(n) {
@@ -195,6 +238,26 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
 
   // Pointer-drag state for the `map` host view (one pointer pans at a time).
   const mapDrag = { active: false, x: 0, y: 0 };
+
+  // A scroll pinned to its bottom edge (`.defaultScrollAnchor(.bottom)`):
+  // starts at the newest content and follows growth while the user is at the
+  // bottom; scrolling up unpins until they return (within a small slop).
+  function BottomAnchoredScroll({ divProps, children }) {
+    const ref = R.useRef(null);
+    const pinned = R.useRef(true);
+    R.useLayoutEffect(() => {
+      const el = ref.current;
+      if (el && pinned.current) el.scrollTop = el.scrollHeight;
+    });
+    return h("div", {
+      ...divProps,
+      ref,
+      onScroll: (e) => {
+        const el = e.currentTarget;
+        pinned.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+      },
+    }, children);
+  }
 
   function hostView(n, props, kids) {
     const p = n.params || {};
@@ -453,6 +516,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         s.minHeight = 0;
         s.minWidth = 0;
         s[n.axis === "h" ? "overflowX" : "overflowY"] = "auto";
+        // `.defaultScrollAnchor(.bottom)` (a chat log): start at the bottom
+        // and stay pinned there as content grows, until the user scrolls up.
+        if ((n.params || {}).anchor === "bottom") {
+          return h(BottomAnchoredScroll, { key, divProps: props }, kids);
+        }
         return h("div", props, kids);
       case "image": {
         const src = /^(https?:|data:|blob:)/.test(n.src) ? n.src : assetBase + n.src + (n.src.includes(".") ? "" : ".png");
