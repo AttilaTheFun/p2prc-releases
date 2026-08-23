@@ -236,6 +236,100 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, tabs);
   }
 
+  // Semantic navigation (`navstack`) → the web idiom: a compact header bar
+  // (back, leading items, centered title, trailing items) shown when it has
+  // content, a large-title heading + search row unless the title mode is
+  // inline, then the content column. Events ride the node's host-event
+  // channel: "back", "leading:<i>", "trailingItem:<i>", "search:<text>".
+  function navStack(n, key, kids) {
+    const p = n.params || {};
+    const dark = p.dark === "1";
+    const depth = Number(p.depth || 0);
+    const inline = p.displayMode === "inline";
+    const leading = p.leading ? p.leading.split("\n") : [];
+    const trailing = p.trailingItems ? p.trailingItems.split("\n") : [];
+    const showBar = depth > 0 || leading.length > 0 || trailing.length > 0 || inline;
+    const rows = [];
+    if (showBar) {
+      rows.push(h(R.Fragment, { key: "bar" }, navBar({
+        edit: n.edit,
+        params: {
+          title: inline || !p.title ? (p.title || "") : "",
+          back: depth > 0 ? "1" : "0",
+          dark: p.dark,
+          leading: p.leading,
+          trailingItems: p.trailingItems,
+        },
+      })));
+    }
+    if (!inline && p.title) {
+      rows.push(h("div", {
+        key: "title",
+        style: {
+          fontSize: 34, fontWeight: 700, padding: "6px 16px 8px",
+          color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+          fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+        },
+      }, p.title));
+    }
+    if (p.searchPrompt != null && p.searchPrompt !== "") {
+      rows.push(h("input", {
+        key: "search",
+        type: "search",
+        defaultValue: p.searchValue || "",
+        placeholder: p.searchPrompt,
+        onInput: (e) => sendEvent(n.edit, `search:${e.target.value}`),
+        style: {
+          margin: "0 16px 8px", padding: "7px 10px", fontSize: 15,
+          border: "1px solid rgba(120,120,128,0.35)", borderRadius: 8,
+          outline: "none", background: "rgba(120,120,128,0.08)",
+          color: "inherit",
+        },
+      }));
+    }
+    rows.push(h("div", {
+      key: `content:${depth}`, // remount per level: a push swaps the screen
+      style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch" },
+    }, kids));
+    return h("div", {
+      key,
+      style: {
+        display: "flex", flexDirection: "column", flex: 1,
+        minHeight: 0, minWidth: 0, alignSelf: "stretch", width: "100%",
+        color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+      },
+    }, rows);
+  }
+
+  // Semantic `navsplit` → three columns (240 | 340 | remainder) with
+  // hairline dividers; the sidebar carries the bar tint, like a desktop
+  // split view.
+  function navSplit(n, key, kids) {
+    const dark = (n.params || {}).dark === "1";
+    const divider = (k) => h("div", {
+      key: k,
+      style: { width: 1, flex: "none", alignSelf: "stretch", background: dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)" },
+    });
+    const column = (k, width, kid, background) => h("div", {
+      key: k,
+      style: {
+        width, flex: width == null ? 1 : "none",
+        minWidth: width == null ? 0 : undefined,
+        display: "flex", flexDirection: "column", minHeight: 0,
+        alignSelf: "stretch", background,
+      },
+    }, kid);
+    return h("div", {
+      key,
+      style: { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
+    },
+      column("sidebar", 240, kids[0], dark ? "rgba(30,30,32,0.94)" : "rgba(247,247,247,0.94)"),
+      divider("d0"),
+      column("content", 340, kids[1]),
+      divider("d1"),
+      column("detail", null, kids[2]));
+  }
+
   // Pointer-drag state for the `map` host view (one pointer pans at a time).
   const mapDrag = { active: false, x: 0, y: 0 };
 
@@ -571,6 +665,17 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         return h("div", props, kids);
       }
       case "hostView":
+        if (n.view === "navstack") return navStack(n, key, kids);
+        if (n.view === "navsplit") return navSplit(n, key, kids);
+        if (n.view === "tabs") {
+          // Semantic tabs → the selected tab's content over the bottom bar.
+          return h("div", {
+            key,
+            style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch", width: "100%" },
+          },
+            h("div", { key: "content", style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } }, kids),
+            h(R.Fragment, { key: "bar" }, tabBar({ edit: n.edit, params: n.params })));
+        }
         return hostView(n, props, kids);
       case "presentation":
         return presentation(n, kids);
@@ -582,6 +687,16 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           s.justifyContent = alignCSS[n.alignV] || "center";
           s.minHeight = 0;
           s.minWidth = 0;
+        }
+        // Semantic list rows carry a `cell` role instead of baked-in
+        // chrome — this host's row idiom: comfortable padding, a minimum
+        // touch height, and a hairline separator.
+        if ((n.params || {}).cell === "row") {
+          s.padding = "11px 16px";
+          s.minHeight = 44;
+          s.boxSizing = "border-box";
+          s.justifyContent = "center";
+          s.borderBottom = "1px solid rgba(120,120,128,0.2)";
         }
         return h("div", props, kids);
       }
