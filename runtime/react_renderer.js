@@ -196,6 +196,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         style: {
           flex: 1, textAlign: "center", fontWeight: 600, fontSize: 16,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          // Explicit shrinkability: overflow:hidden already zeroes the flex
+          // minimum (the automatic min-size only applies to visible
+          // overflow), but state it outright so a future overflow change
+          // can't silently let a long nowrap title push the trailing
+          // toolbar cluster off-viewport on narrow screens.
+          minWidth: 0,
           opacity: p.large === "1" ? Number(p.inlineAlpha || 1) : 1,
         },
       }, p.title || ""),
@@ -303,15 +309,19 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
 
   // Semantic `navsplit` → three columns (240 | 340 | remainder) with
   // hairline dividers; the sidebar carries the bar tint, like a desktop
-  // split view.
-  function navSplit(n, key, kids) {
-    const dark = (n.params || {}).dark === "1";
+  // split view. On a COMPACT container it collapses to a single-pane drill
+  // (like SwiftUI's own split view on an iPhone): a tap inside the visible
+  // column advances to the next pane, the back row retreats.
+  function NavSplit({ dark, kids }) {
+    const [pane, setPane] = R.useState(0);
+    const compact = window.innerWidth < 700;
     const divider = (k) => h("div", {
       key: k,
       style: { width: 1, flex: "none", alignSelf: "stretch", background: dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)" },
     });
-    const column = (k, width, kid, background) => h("div", {
+    const column = (k, width, kid, background, extra) => h("div", {
       key: k,
+      ...extra,
       style: {
         width, flex: width == null ? 1 : "none",
         minWidth: width == null ? 0 : undefined,
@@ -319,15 +329,45 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         alignSelf: "stretch", background,
       },
     }, kid);
+    const sidebarBg = dark ? "rgba(30,30,32,0.94)" : "rgba(247,247,247,0.94)";
+    if (!compact) {
+      return h("div", {
+        style: { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
+      },
+        column("sidebar", 240, kids[0], sidebarBg),
+        divider("d0"),
+        column("content", 340, kids[1]),
+        divider("d1"),
+        column("detail", null, kids[2]));
+    }
+    // Compact: pane 0 = sidebar, 1 = content, 2 = detail. Advance on click
+    // (bubble phase, so the row's own tap fired first), retreat via the
+    // back row.
+    const rows = [];
+    if (pane > 0) {
+      rows.push(h("div", {
+        key: "back",
+        onClick: () => setPane(pane - 1),
+        style: {
+          padding: "10px 14px", color: "#0a84ff", cursor: "pointer",
+          fontSize: 16, flex: "none",
+          fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+        },
+      }, "‹ Back"));
+    }
+    rows.push(column(
+      `pane${pane}`, null, kids[pane],
+      pane === 0 ? sidebarBg : undefined,
+      // Capture phase: row handlers stopPropagation, so the bubble never
+      // arrives — capture runs first and the row's own tap still fires.
+      pane < 2 ? { onClickCapture: () => setPane(pane + 1) } : undefined));
     return h("div", {
-      key,
-      style: { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
-    },
-      column("sidebar", 240, kids[0], dark ? "rgba(30,30,32,0.94)" : "rgba(247,247,247,0.94)"),
-      divider("d0"),
-      column("content", 340, kids[1]),
-      divider("d1"),
-      column("detail", null, kids[2]));
+      style: { display: "flex", flexDirection: "column", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
+    }, rows);
+  }
+
+  function navSplit(n, key, kids) {
+    return h(NavSplit, { key, dark: (n.params || {}).dark === "1", kids });
   }
 
   // Pointer-drag state for the `map` host view (one pointer pans at a time).
