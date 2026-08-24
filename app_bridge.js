@@ -799,6 +799,10 @@ export class SwiftUI {
     constructor(runtime) {
         this.runtime = runtime;
     }
+    installP2PRCHost(host) {
+        const f0 = host instanceof SwiftP2PRCHost ? [host.borrowHandle(), 0] : [0, registerForeign(host)];
+        this.runtime.call("swift_ffi_swiftui_installP2PRCHost", f0[0], f0[1]);
+    }
     p2prcRequestComplete(requestID, ok, payload) {
         const b2 = stageString(this.runtime, payload);
         this.runtime.call("swift_ffi_swiftui_p2prcRequestComplete", requestID, ok ? 1 : 0, b2.ptr, b2.len);
@@ -921,6 +925,81 @@ export async function load(wasm, options) {
                 return 0n;
             const id = registerForeign(dep.dispatcher);
             return (BigInt(dep.lazy ? 1 : 0) << 48n) | (BigInt(dep.ordinal) << 32n) | BigInt(id >>> 0);
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_createOffer": (id, p0, p1, p1_len) => {
+            foreignObjects.get(id).createOffer(p0, foreignString(p1, p1_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_acceptOffer": (id, p0, p1, p1_len, p2, p2_len) => {
+            foreignObjects.get(id).acceptOffer(p0, foreignString(p1, p1_len), foreignString(p2, p2_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_acceptAnswer": (id, p0, p1, p1_len, p2, p2_len) => {
+            foreignObjects.get(id).acceptAnswer(p0, foreignString(p1, p1_len), foreignString(p2, p2_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_sendFrame": (id, p0, p0_len, p1, p1_len) => {
+            foreignObjects.get(id).sendFrame(foreignString(p0, p0_len), foreignString(p1, p1_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_closeConnection": (id, p0, p0_len) => {
+            foreignObjects.get(id).closeConnection(foreignString(p0, p0_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_save": (id, p0, p0_len, p1, p1_len) => {
+            foreignObjects.get(id).save(foreignString(p0, p0_len), foreignString(p1, p1_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_load": (id, p0, p1, p1_len) => {
+            foreignObjects.get(id).load(p0, foreignString(p1, p1_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_pageURL": (id, p0) => {
+            foreignObjects.get(id).pageURL(p0);
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_openingHash": (id, p0) => {
+            foreignObjects.get(id).openingHash(p0);
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_setHash": (id, p0, p0_len) => {
+            foreignObjects.get(id).setHash(foreignString(p0, p0_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_publishAnswer": (id, p0, p0_len) => {
+            foreignObjects.get(id).publishAnswer(foreignString(p0, p0_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_drawQR": (id, p0, p0_len, p1, p1_len) => {
+            foreignObjects.get(id).drawQR(foreignString(p0, p0_len), foreignString(p1, p1_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_share": (id, p0, p0_len) => {
+            foreignObjects.get(id).share(foreignString(p0, p0_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_saveQR": (id, p0, p0_len) => {
+            foreignObjects.get(id).saveQR(foreignString(p0, p0_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_scanQR": (id, p0) => {
+            foreignObjects.get(id).scanQR(p0);
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_capabilities": (id, p0) => {
+            foreignObjects.get(id).capabilities(p0);
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_httpGet": (id, p0, p1, p1_len) => {
+            foreignObjects.get(id).httpGet(p0, foreignString(p1, p1_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_delay": (id, p0, p1) => {
+            foreignObjects.get(id).delay(p0, p1);
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_stunLookup": (id, p0, p1, p1_len) => {
+            foreignObjects.get(id).stunLookup(p0, foreignString(p1, p1_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_startServer": (id, p0, p1, p1_len) => {
+            foreignObjects.get(id).startServer(p0, foreignString(p1, p1_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_publishDirectory": (id, p0, p0_len) => {
+            foreignObjects.get(id).publishDirectory(foreignString(p0, p0_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_setIceServers": (id, p0, p0_len) => {
+            foreignObjects.get(id).setIceServers(foreignString(p0, p0_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_callStart": (id, p0, p1, p1_len) => {
+            foreignObjects.get(id).callStart(p0, foreignString(p1, p1_len));
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_callApplyRemote": (id, p0, p1, p1_len, p2, p2_len, p3) => {
+            foreignObjects.get(id).callApplyRemote(p0, foreignString(p1, p1_len), foreignString(p2, p2_len), p3 !== 0);
+        },
+        "swift_ffi_swiftui_foreign_P2PRCHost_callEnd": (id, p0, p0_len) => {
+            foreignObjects.get(id).callEnd(foreignString(p0, p0_len));
         },
         "swift_ffi_swiftui_foreign_GPUWebHost_gpuCreateTexture": (id, p0, p1, p2, p3, p3_len) => {
             foreignObjects.get(id).gpuCreateTexture(p0, p1, p2, foreignBytes(p3, p3_len));

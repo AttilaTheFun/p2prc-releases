@@ -101,17 +101,37 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     return props;
   }
 
-  // A text input holding focus-local state so re-renders from Swift don't
-  // reset the caret; external value changes apply while unfocused. The
-  // vertical-axis form (`TextField(_:text:axis: .vertical)`, params.axis "v")
-  // renders a textarea that grows with its content between minLines and
-  // maxLines (`.lineLimit(1...6)`), then scrolls internally.
+  // A text input holding local state between keystroke echoes so re-renders
+  // from Swift don't reset the caret — but a PROGRAMMATIC guest change (a new
+  // serialized value that is neither the current text nor an in-flight edit
+  // echoing back, e.g. a chat composer clearing its draft on send) applies
+  // immediately, focused or not. The vertical-axis form
+  // (`TextField(_:text:axis: .vertical)`, params.axis "v") renders a textarea
+  // that grows with its content between minLines and maxLines
+  // (`.lineLimit(1...6)`), then scrolls internally.
   function TextInput({ n }) {
     const [value, setValue] = R.useState(n.v || "");
-    const focused = R.useRef(false);
+    const pending = R.useRef([]);
+    const lastSerialized = R.useRef(n.v || "");
     const areaRef = R.useRef(null);
     R.useEffect(() => {
-      if (!focused.current) setValue(n.v || "");
+      const v = n.v || "";
+      if (v === lastSerialized.current) return;
+      lastSerialized.current = v;
+      setValue((current) => {
+        if (v === current) {
+          pending.current = [];
+          return current;
+        }
+        const echo = pending.current.indexOf(v);
+        if (echo >= 0) {
+          // An older keystroke echoing back; the local text is newer.
+          pending.current.splice(0, echo + 1);
+          return current;
+        }
+        pending.current = [];
+        return v;
+      });
     }, [n.v]);
     const p = n.params || {};
     const multiline = p.axis === "v";
@@ -139,10 +159,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     const shared = {
       value,
       placeholder: n.placeholder,
-      onFocus: () => { focused.current = true; },
-      onBlur: () => { focused.current = false; },
       onChange: (e) => {
         setValue(e.target.value);
+        pending.current.push(e.target.value);
         if (n.edit) sendEvent(n.edit, e.target.value);
       },
     };
