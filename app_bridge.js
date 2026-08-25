@@ -12,22 +12,24 @@
 //
 // The shared runtime (swift_ffi/runtime/ts) is staged next to this file
 // by the wasm library macro; bridges in one directory share the one copy.
-import { BlobReader, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeErrorBlob, encodeWith, encoder, foreignObjects, registerForeign, registry, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js";
+import { BlobReader, BlobWriter, Runtime, SwiftError, Tags, Types, decodeWith, decoder, encodeErrorBlob, encodeWith, errorMessageOf, foreignObjects, registerForeign, registry, stageBytes, stageString, takeBytes, wasiShim, } from "./swift_ffi_runtime.js";
 // Re-exported so consumers keep importing them from this module.
 export { Types } from "./swift_ffi_runtime.js";
 /** The runtime type token for `TextMetrics` (generic calls). */
 export const TextMetricsType = {
     encode(w, v) {
-        w.header(Tags.struct, 2);
+        w.typeHeader(Tags.struct, "TextMetrics");
         w.i64(2n);
         Types.double.encode(w, v.width);
         Types.double.encode(w, v.height);
     },
     decode(r) {
         const tag = r.i32();
-        r.i32();
+        const aux = r.i32();
         if (tag !== Tags.struct)
             throw new SwiftError("expected TextMetrics");
+        if (aux > 0)
+            r.bytes(aux);
         r.i64();
         const width = Types.double.decode(r);
         const height = Types.double.decode(r);
@@ -37,7 +39,7 @@ export const TextMetricsType = {
 /** The runtime type token for `ImageInfoValue` (generic calls). */
 export const ImageInfoValueType = {
     encode(w, v) {
-        w.header(Tags.struct, 0);
+        w.typeHeader(Tags.struct, "ImageInfoValue");
         w.i64(3n);
         Types.int32.encode(w, v.state);
         Types.double.encode(w, v.width);
@@ -45,9 +47,11 @@ export const ImageInfoValueType = {
     },
     decode(r) {
         const tag = r.i32();
-        r.i32();
+        const aux = r.i32();
         if (tag !== Tags.struct)
             throw new SwiftError("expected ImageInfoValue");
+        if (aux > 0)
+            r.bytes(aux);
         r.i64();
         const state = Types.int32.decode(r);
         const width = Types.double.decode(r);
@@ -58,16 +62,18 @@ export const ImageInfoValueType = {
 /** The runtime type token for `StoredValue` (generic calls). */
 export const StoredValueType = {
     encode(w, v) {
-        w.header(Tags.struct, 1);
+        w.typeHeader(Tags.struct, "StoredValue");
         w.i64(2n);
         Types.bool.encode(w, v.exists);
         Types.string.encode(w, v.contents);
     },
     decode(r) {
         const tag = r.i32();
-        r.i32();
+        const aux = r.i32();
         if (tag !== Tags.struct)
             throw new SwiftError("expected StoredValue");
+        if (aux > 0)
+            r.bytes(aux);
         r.i64();
         const exists = Types.bool.decode(r);
         const contents = Types.string.decode(r);
@@ -89,7 +95,7 @@ export class SwiftP2PRCHost {
     constructor(runtime, handle) {
         this.runtime = runtime;
         this.handle = handle;
-        registry.register(this, () => runtime.call("swift_ffi_swiftui_P2PRCHost_release", handle), this);
+        registry.register(this, () => runtime.call("swift_ffi_p2prc_P2PRCHost_release", handle), this);
     }
     /** @internal */
     borrowHandle() {
@@ -101,7 +107,7 @@ export class SwiftP2PRCHost {
     close() {
         if (this.handle !== 0) {
             registry.unregister(this);
-            this.runtime.call("swift_ffi_swiftui_P2PRCHost_release", this.handle);
+            this.runtime.call("swift_ffi_p2prc_P2PRCHost_release", this.handle);
             this.handle = 0;
         }
     }
@@ -110,380 +116,327 @@ export class SwiftP2PRCHost {
     }
     createOffer(requestID, peer) {
         const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, peer);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_createOffer", handle, requestID, b1.ptr, b1.len);
-        b1.drop();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.string.encode(w, peer);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     acceptOffer(requestID, peer, blob) {
         const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, peer);
-        const b2 = stageString(this.runtime, blob);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_acceptOffer", handle, requestID, b1.ptr, b1.len, b2.ptr, b2.len);
-        b1.drop();
-        b2.drop();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.string.encode(w, peer);
+        Types.string.encode(w, blob);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 1, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     acceptAnswer(requestID, peer, blob) {
         const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, peer);
-        const b2 = stageString(this.runtime, blob);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_acceptAnswer", handle, requestID, b1.ptr, b1.len, b2.ptr, b2.len);
-        b1.drop();
-        b2.drop();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.string.encode(w, peer);
+        Types.string.encode(w, blob);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 2, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     sendFrame(peer, text) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, peer);
-        const b1 = stageString(this.runtime, text);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_sendFrame", handle, b0.ptr, b0.len, b1.ptr, b1.len);
-        b0.drop();
-        b1.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, peer);
+        Types.string.encode(w, text);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 3, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     closeConnection(peer) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, peer);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_closeConnection", handle, b0.ptr, b0.len);
-        b0.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, peer);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 4, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     save(key, value) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, key);
-        const b1 = stageString(this.runtime, value);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_save", handle, b0.ptr, b0.len, b1.ptr, b1.len);
-        b0.drop();
-        b1.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, key);
+        Types.string.encode(w, value);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 5, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     load(requestID, key) {
         const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, key);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_load", handle, requestID, b1.ptr, b1.len);
-        b1.drop();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.string.encode(w, key);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 6, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     pageURL(requestID) {
         const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_pageURL", handle, requestID);
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 7, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     openingHash(requestID) {
         const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_openingHash", handle, requestID);
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 8, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     setHash(value) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, value);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_setHash", handle, b0.ptr, b0.len);
-        b0.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, value);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 9, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     publishAnswer(blob) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, blob);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_publishAnswer", handle, b0.ptr, b0.len);
-        b0.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, blob);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 10, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     drawQR(elementID, text) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, elementID);
-        const b1 = stageString(this.runtime, text);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_drawQR", handle, b0.ptr, b0.len, b1.ptr, b1.len);
-        b0.drop();
-        b1.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, elementID);
+        Types.string.encode(w, text);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 11, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     share(text) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, text);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_share", handle, b0.ptr, b0.len);
-        b0.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, text);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 12, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     saveQR(elementID) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, elementID);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_saveQR", handle, b0.ptr, b0.len);
-        b0.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, elementID);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 13, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     scanQR(requestID) {
         const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_scanQR", handle, requestID);
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 14, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     capabilities(requestID) {
         const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_capabilities", handle, requestID);
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 15, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     httpGet(requestID, url) {
         const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, url);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_httpGet", handle, requestID, b1.ptr, b1.len);
-        b1.drop();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.string.encode(w, url);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 16, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     delay(requestID, ms) {
         const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_delay", handle, requestID, ms);
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.int32.encode(w, ms);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 17, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     stunLookup(requestID, server) {
         const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, server);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_stunLookup", handle, requestID, b1.ptr, b1.len);
-        b1.drop();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.string.encode(w, server);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 18, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     startServer(requestID, directory) {
         const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, directory);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_startServer", handle, requestID, b1.ptr, b1.len);
-        b1.drop();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.string.encode(w, directory);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 19, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     publishDirectory(directory) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, directory);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_publishDirectory", handle, b0.ptr, b0.len);
-        b0.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, directory);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 20, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     setIceServers(json) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, json);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_setIceServers", handle, b0.ptr, b0.len);
-        b0.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, json);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 21, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     callStart(requestID, peer) {
         const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, peer);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callStart", handle, requestID, b1.ptr, b1.len);
-        b1.drop();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.string.encode(w, peer);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 22, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     callApplyRemote(requestID, peer, sdp, isOffer) {
         const handle = this.borrowHandle();
-        const b1 = stageString(this.runtime, peer);
-        const b2 = stageString(this.runtime, sdp);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callApplyRemote", handle, requestID, b1.ptr, b1.len, b2.ptr, b2.len, isOffer ? 1 : 0);
-        b1.drop();
-        b2.drop();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.string.encode(w, peer);
+        Types.string.encode(w, sdp);
+        Types.bool.encode(w, isOffer);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 23, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
     callEnd(peer) {
         const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, peer);
-        this.runtime.call("swift_ffi_swiftui_P2PRCHost_callEnd", handle, b0.ptr, b0.len);
-        b0.drop();
+        const w = new BlobWriter();
+        Types.string.encode(w, peer);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 24, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
     }
 }
-export class SwiftGPUWebHost {
-    handle;
-    runtime;
-    /** @internal Takes ownership of a +1 handle. */
-    constructor(runtime, handle) {
-        this.runtime = runtime;
-        this.handle = handle;
-        registry.register(this, () => runtime.call("swift_ffi_swiftui_GPUWebHost_release", handle), this);
-    }
-    /** @internal */
-    borrowHandle() {
-        if (this.handle === 0)
-            throw new Error("GPUWebHost used after close()");
-        return this.handle;
-    }
-    /** Releases the underlying Swift instance. Idempotent. */
-    close() {
-        if (this.handle !== 0) {
-            registry.unregister(this);
-            this.runtime.call("swift_ffi_swiftui_GPUWebHost_release", this.handle);
-            this.handle = 0;
-        }
-    }
-    [Symbol.dispose]() {
-        this.close();
-    }
-    gpuCreateTexture(id, width, height, rgba) {
-        const handle = this.borrowHandle();
-        const b3 = stageBytes(this.runtime, rgba);
-        this.runtime.call("swift_ffi_swiftui_GPUWebHost_gpuCreateTexture", handle, id, width, height, b3.ptr, b3.len);
-        b3.drop();
-    }
-    gpuDestroyTexture(id) {
-        const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_GPUWebHost_gpuDestroyTexture", handle, id);
-    }
-    gpuBeginFrame(red, green, blue, alpha) {
-        const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_GPUWebHost_gpuBeginFrame", handle, red, green, blue, alpha);
-    }
-    gpuSetTransform(matrix) {
-        const handle = this.borrowHandle();
-        const b0 = stageBytes(this.runtime, matrix);
-        this.runtime.call("swift_ffi_swiftui_GPUWebHost_gpuSetTransform", handle, b0.ptr, b0.len);
-        b0.drop();
-    }
-    gpuDrawTextured(id, vertices) {
-        const handle = this.borrowHandle();
-        const b1 = stageBytes(this.runtime, vertices);
-        this.runtime.call("swift_ffi_swiftui_GPUWebHost_gpuDrawTextured", handle, id, b1.ptr, b1.len);
-        b1.drop();
-    }
-    gpuDrawColor(vertices) {
-        const handle = this.borrowHandle();
-        const b0 = stageBytes(this.runtime, vertices);
-        this.runtime.call("swift_ffi_swiftui_GPUWebHost_gpuDrawColor", handle, b0.ptr, b0.len);
-        b0.drop();
-    }
-    gpuDrawRects(vertices) {
-        const handle = this.borrowHandle();
-        const b0 = stageBytes(this.runtime, vertices);
-        this.runtime.call("swift_ffi_swiftui_GPUWebHost_gpuDrawRects", handle, b0.ptr, b0.len);
-        b0.drop();
-    }
-    gpuSetScissor(x, y, width, height) {
-        const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_GPUWebHost_gpuSetScissor", handle, x, y, width, height);
-    }
-    gpuClearScissor() {
-        const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_GPUWebHost_gpuClearScissor", handle);
-    }
-    gpuEndFrame() {
-        const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_GPUWebHost_gpuEndFrame", handle);
-    }
-}
-export class SwiftWebHost {
-    handle;
-    runtime;
-    /** @internal Takes ownership of a +1 handle. */
-    constructor(runtime, handle) {
-        this.runtime = runtime;
-        this.handle = handle;
-        registry.register(this, () => runtime.call("swift_ffi_swiftui_WebHost_release", handle), this);
-    }
-    /** @internal */
-    borrowHandle() {
-        if (this.handle === 0)
-            throw new Error("WebHost used after close()");
-        return this.handle;
-    }
-    /** Releases the underlying Swift instance. Idempotent. */
-    close() {
-        if (this.handle !== 0) {
-            registry.unregister(this);
-            this.runtime.call("swift_ffi_swiftui_WebHost_release", this.handle);
-            this.handle = 0;
-        }
-    }
-    [Symbol.dispose]() {
-        this.close();
-    }
-    measureText(text, fontSize, weight, wrapWidth) {
-        const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, text);
-        const r = this.runtime.call("swift_ffi_swiftui_WebHost_measureText", handle, b0.ptr, b0.len, fontSize, weight, wrapWidth);
-        b0.drop();
-        return decodeWith(TextMetricsType, takeBytes(this.runtime, r));
-    }
-    imageInfo(source, isRemote) {
-        const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, source);
-        const r = this.runtime.call("swift_ffi_swiftui_WebHost_imageInfo", handle, b0.ptr, b0.len, isRemote ? 1 : 0);
-        b0.drop();
-        return decodeWith(ImageInfoValueType, takeBytes(this.runtime, r));
-    }
-    syncHostViews(viewsJSON) {
-        const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, viewsJSON);
-        this.runtime.call("swift_ffi_swiftui_WebHost_syncHostViews", handle, b0.ptr, b0.len);
-        b0.drop();
-    }
-    beginTextInput(text, x, y, width, height, fontSize) {
-        const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, text);
-        this.runtime.call("swift_ffi_swiftui_WebHost_beginTextInput", handle, b0.ptr, b0.len, x, y, width, height, fontSize);
-        b0.drop();
-    }
-    endTextInput() {
-        const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_WebHost_endTextInput", handle);
-    }
-    scheduleRender() {
-        const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_WebHost_scheduleRender", handle);
-    }
-    setColorScheme(dark) {
-        const handle = this.borrowHandle();
-        this.runtime.call("swift_ffi_swiftui_WebHost_setColorScheme", handle, dark ? 1 : 0);
-    }
-    now() {
-        const handle = this.borrowHandle();
-        const r = this.runtime.call("swift_ffi_swiftui_WebHost_now", handle);
-        return r;
-    }
-    rasterize(spec) {
-        const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, spec);
-        const r = this.runtime.call("swift_ffi_swiftui_WebHost_rasterize", handle, b0.ptr, b0.len);
-        b0.drop();
-        return takeBytes(this.runtime, r);
-    }
-    storageGet(key) {
-        const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, key);
-        const r = this.runtime.call("swift_ffi_swiftui_WebHost_storageGet", handle, b0.ptr, b0.len);
-        b0.drop();
-        return decodeWith(StoredValueType, takeBytes(this.runtime, r));
-    }
-    storageSet(key, value) {
-        const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, key);
-        const b1 = stageString(this.runtime, value);
-        this.runtime.call("swift_ffi_swiftui_WebHost_storageSet", handle, b0.ptr, b0.len, b1.ptr, b1.len);
-        b0.drop();
-        b1.drop();
-    }
-    log(message) {
-        const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, message);
-        this.runtime.call("swift_ffi_swiftui_WebHost_log", handle, b0.ptr, b0.len);
-        b0.drop();
-    }
-    openURL(url) {
-        const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, url);
-        this.runtime.call("swift_ffi_swiftui_WebHost_openURL", handle, b0.ptr, b0.len);
-        b0.drop();
-    }
-    platformCommand(key, value) {
-        const handle = this.borrowHandle();
-        const b0 = stageString(this.runtime, key);
-        const b1 = stageString(this.runtime, value);
-        this.runtime.call("swift_ffi_swiftui_WebHost_platformCommand", handle, b0.ptr, b0.len, b1.ptr, b1.len);
-        b0.drop();
-        b1.drop();
-    }
-    epochMillis() {
-        const handle = this.borrowHandle();
-        const r = this.runtime.call("swift_ffi_swiftui_WebHost_epochMillis", handle);
-        return r;
-    }
-    renderTree(tree) {
-        const handle = this.borrowHandle();
-        const b0 = stageBytes(this.runtime, tree);
-        this.runtime.call("swift_ffi_swiftui_WebHost_renderTree", handle, b0.ptr, b0.len);
-        b0.drop();
-    }
-}
-/** Builders wrapping host implementations for injection. */
-export const Dependencies = {
-    p2PRCHost: (provide, lazy = true) => ({
-        ordinal: 1,
-        lazy,
-        dispatcher: dependencyDispatcher_P2PRCHost(provide),
-    }),
-    gPUWebHost: (provide, lazy = true) => ({
-        ordinal: 0,
-        lazy,
-        dispatcher: dependencyDispatcher_GPUWebHost(provide),
-    }),
-    webHost: (provide, lazy = true) => ({
-        ordinal: 2,
-        lazy,
-        dispatcher: dependencyDispatcher_WebHost(provide),
-    }),
-};
-function dependencyDispatcher_P2PRCHost(provide) {
-    let impl;
+/** Wraps a consumer-implemented `P2PRCHost` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_P2PRCHost(impl, runtime) {
     return (args) => {
-        if (!impl)
-            impl = provide();
         const r = new BlobReader(args);
         switch (Types.int32.decode(r)) {
             case 0: {
@@ -629,14 +582,169 @@ function dependencyDispatcher_P2PRCHost(provide) {
                 return new Uint8Array(0);
             }
         }
-        throw new SwiftError("unknown method ordinal");
+        throw new SwiftError("unknown P2PRCHost method ordinal");
     };
 }
-function dependencyDispatcher_GPUWebHost(provide) {
-    let impl;
+export class SwiftGPUWebHost {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_GPUWebHost_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("GPUWebHost used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_GPUWebHost_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    gpuCreateTexture(id, width, height, rgba) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.int32.encode(w, id);
+        Types.int32.encode(w, width);
+        Types.int32.encode(w, height);
+        Types.bytes.encode(w, rgba);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    gpuDestroyTexture(id) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.int32.encode(w, id);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 1, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    gpuBeginFrame(red, green, blue, alpha) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.double.encode(w, red);
+        Types.double.encode(w, green);
+        Types.double.encode(w, blue);
+        Types.double.encode(w, alpha);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 2, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    gpuSetTransform(matrix) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.bytes.encode(w, matrix);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 3, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    gpuDrawTextured(id, vertices) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.int32.encode(w, id);
+        Types.bytes.encode(w, vertices);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 4, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    gpuDrawColor(vertices) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.bytes.encode(w, vertices);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 5, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    gpuDrawRects(vertices) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.bytes.encode(w, vertices);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 6, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    gpuSetScissor(x, y, width, height) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.int32.encode(w, x);
+        Types.int32.encode(w, y);
+        Types.int32.encode(w, width);
+        Types.int32.encode(w, height);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 7, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    gpuClearScissor() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 8, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    gpuEndFrame() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_GPUWebHost_invoke", handle, 9, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+}
+/** Wraps a consumer-implemented `GPUWebHost` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_GPUWebHost(impl, runtime) {
     return (args) => {
-        if (!impl)
-            impl = provide();
         const r = new BlobReader(args);
         switch (Types.int32.decode(r)) {
             case 0: {
@@ -698,14 +806,246 @@ function dependencyDispatcher_GPUWebHost(provide) {
                 return new Uint8Array(0);
             }
         }
-        throw new SwiftError("unknown method ordinal");
+        throw new SwiftError("unknown GPUWebHost method ordinal");
     };
 }
-function dependencyDispatcher_WebHost(provide) {
-    let impl;
+export class SwiftWebHost {
+    handle;
+    runtime;
+    /** @internal Takes ownership of a +1 handle. */
+    constructor(runtime, handle) {
+        this.runtime = runtime;
+        this.handle = handle;
+        registry.register(this, () => runtime.call("swift_ffi_WebHost_release", handle), this);
+    }
+    /** @internal */
+    borrowHandle() {
+        if (this.handle === 0)
+            throw new Error("WebHost used after close()");
+        return this.handle;
+    }
+    /** Releases the underlying Swift instance. Idempotent. */
+    close() {
+        if (this.handle !== 0) {
+            registry.unregister(this);
+            this.runtime.call("swift_ffi_WebHost_release", this.handle);
+            this.handle = 0;
+        }
+    }
+    [Symbol.dispose]() {
+        this.close();
+    }
+    measureText(text, fontSize, weight, wrapWidth) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, text);
+        Types.double.encode(w, fontSize);
+        Types.int32.encode(w, weight);
+        Types.double.encode(w, wrapWidth);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 0, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(TextMetricsType, result);
+    }
+    imageInfo(source, isRemote) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, source);
+        Types.bool.encode(w, isRemote);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 1, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(ImageInfoValueType, result);
+    }
+    syncHostViews(viewsJSON) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, viewsJSON);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 2, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    beginTextInput(text, x, y, width, height, fontSize) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, text);
+        Types.double.encode(w, x);
+        Types.double.encode(w, y);
+        Types.double.encode(w, width);
+        Types.double.encode(w, height);
+        Types.double.encode(w, fontSize);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 3, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    endTextInput() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 4, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    scheduleRender() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 5, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    setColorScheme(dark) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.bool.encode(w, dark);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 6, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    now() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 7, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.double, result);
+    }
+    rasterize(spec) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, spec);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 8, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.bytes, result);
+    }
+    storageGet(key) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, key);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 9, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(StoredValueType, result);
+    }
+    storageSet(key, value) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, key);
+        Types.string.encode(w, value);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 10, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    log(message) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, message);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 11, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    openURL(url) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, url);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 12, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    platformCommand(key, value) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.string.encode(w, key);
+        Types.string.encode(w, value);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 13, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    epochMillis() {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 14, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+        return decodeWith(Types.double, result);
+    }
+    renderTree(tree) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.bytes.encode(w, tree);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_WebHost_invoke", handle, 15, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+}
+/** Wraps a consumer-implemented `WebHost` as the ordinal
+ * dispatcher Swift's foreign proxy calls (method ordinal leads the
+ * arguments). */
+export function makeDispatcher_WebHost(impl, runtime) {
     return (args) => {
-        if (!impl)
-            impl = provide();
         const r = new BlobReader(args);
         switch (Types.int32.decode(r)) {
             case 0: {
@@ -790,9 +1130,48 @@ function dependencyDispatcher_WebHost(provide) {
                 return new Uint8Array(0);
             }
         }
-        throw new SwiftError("unknown method ordinal");
+        throw new SwiftError("unknown WebHost method ordinal");
     };
 }
+/** Builders wrapping host implementations for injection. */
+export const Dependencies = {
+    p2PRCHost: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_p2prc_P2PRCHost",
+            lazy,
+            dispatcher: (args) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_P2PRCHost(impl)(args);
+            },
+        };
+    },
+    gPUWebHost: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_GPUWebHost",
+            lazy,
+            dispatcher: (args) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_GPUWebHost(impl)(args);
+            },
+        };
+    },
+    webHost: (provide, lazy = true) => {
+        let impl;
+        return {
+            key: "swift_ffi_WebHost",
+            lazy,
+            dispatcher: (args) => {
+                if (!impl)
+                    impl = provide();
+                return makeDispatcher_WebHost(impl)(args);
+            },
+        };
+    },
+};
 export class SwiftUI {
     runtime;
     /** @internal */
@@ -800,36 +1179,36 @@ export class SwiftUI {
         this.runtime = runtime;
     }
     installP2PRCHost(host) {
-        const f0 = host instanceof SwiftP2PRCHost ? [host.borrowHandle(), 0] : [0, registerForeign(host)];
-        this.runtime.call("swift_ffi_swiftui_installP2PRCHost", f0[0], f0[1]);
+        const f0 = host instanceof SwiftP2PRCHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_P2PRCHost(host, () => this.runtime))];
+        this.runtime.call("swift_ffi_p2prc_installP2PRCHost", f0[0], f0[1]);
     }
     p2prcRequestComplete(requestID, ok, payload) {
         const b2 = stageString(this.runtime, payload);
-        this.runtime.call("swift_ffi_swiftui_p2prcRequestComplete", requestID, ok ? 1 : 0, b2.ptr, b2.len);
+        this.runtime.call("swift_ffi_p2prc_p2prcRequestComplete", requestID, ok ? 1 : 0, b2.ptr, b2.len);
         b2.drop();
     }
     p2prcEvent(kind, payload) {
         const b0 = stageString(this.runtime, kind);
         const b1 = stageString(this.runtime, payload);
-        this.runtime.call("swift_ffi_swiftui_p2prcEvent", b0.ptr, b0.len, b1.ptr, b1.len);
+        this.runtime.call("swift_ffi_p2prc_p2prcEvent", b0.ptr, b0.len, b1.ptr, b1.len);
         b0.drop();
         b1.drop();
     }
     gpuConnect(host) {
-        const f0 = host instanceof SwiftGPUWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(host)];
-        this.runtime.call("swift_ffi_swiftui_gpuConnect", f0[0], f0[1]);
+        const f0 = host instanceof SwiftGPUWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_GPUWebHost(host, () => this.runtime))];
+        this.runtime.call("swift_ffi_gpuConnect", f0[0], f0[1]);
     }
     uuiSetDisplayScale(scale) {
-        this.runtime.call("swift_ffi_swiftui_uuiSetDisplayScale", scale);
+        this.runtime.call("swift_ffi_uuiSetDisplayScale", scale);
     }
     uuiStart(host, renderer, width, height) {
-        const f0 = host instanceof SwiftWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(host)];
+        const f0 = host instanceof SwiftWebHost ? [host.borrowHandle(), 0] : [0, registerForeign(makeDispatcher_WebHost(host, () => this.runtime))];
         const b1 = stageString(this.runtime, renderer);
-        this.runtime.call("swift_ffi_swiftui_uuiStart", f0[0], f0[1], b1.ptr, b1.len, width, height);
+        this.runtime.call("swift_ffi_uuiStart", f0[0], f0[1], b1.ptr, b1.len, width, height);
         b1.drop();
     }
     uuiRender() {
-        this.runtime.call("swift_ffi_swiftui_uuiRender");
+        this.runtime.call("swift_ffi_uuiRender");
     }
     uuiMapSurfaceRender(id, camera, annotations, polygons, polylines, width, height) {
         const b0 = stageString(this.runtime, id);
@@ -837,7 +1216,7 @@ export class SwiftUI {
         const b2 = stageString(this.runtime, annotations);
         const b3 = stageString(this.runtime, polygons);
         const b4 = stageString(this.runtime, polylines);
-        this.runtime.call("swift_ffi_swiftui_uuiMapSurfaceRender", b0.ptr, b0.len, b1.ptr, b1.len, b2.ptr, b2.len, b3.ptr, b3.len, b4.ptr, b4.len, width, height);
+        this.runtime.call("swift_ffi_uuiMapSurfaceRender", b0.ptr, b0.len, b1.ptr, b1.len, b2.ptr, b2.len, b3.ptr, b3.len, b4.ptr, b4.len, width, height);
         b0.drop();
         b1.drop();
         b2.drop();
@@ -846,41 +1225,41 @@ export class SwiftUI {
     }
     uuiSetScenePhase(phase) {
         const b0 = stageString(this.runtime, phase);
-        this.runtime.call("swift_ffi_swiftui_uuiSetScenePhase", b0.ptr, b0.len);
+        this.runtime.call("swift_ffi_uuiSetScenePhase", b0.ptr, b0.len);
         b0.drop();
     }
     uuiSetColorScheme(dark) {
-        this.runtime.call("swift_ffi_swiftui_uuiSetColorScheme", dark ? 1 : 0);
+        this.runtime.call("swift_ffi_uuiSetColorScheme", dark ? 1 : 0);
     }
     uuiOpenURL(url) {
         const b0 = stageString(this.runtime, url);
-        this.runtime.call("swift_ffi_swiftui_uuiOpenURL", b0.ptr, b0.len);
+        this.runtime.call("swift_ffi_uuiOpenURL", b0.ptr, b0.len);
         b0.drop();
     }
     uuiPointerEvent(kind, x, y) {
-        this.runtime.call("swift_ffi_swiftui_uuiPointerEvent", kind, x, y);
+        this.runtime.call("swift_ffi_uuiPointerEvent", kind, x, y);
     }
     uuiWheelEvent(x, y, deltaX, deltaY) {
-        this.runtime.call("swift_ffi_swiftui_uuiWheelEvent", x, y, deltaX, deltaY);
+        this.runtime.call("swift_ffi_uuiWheelEvent", x, y, deltaX, deltaY);
     }
     uuiResize(width, height) {
-        this.runtime.call("swift_ffi_swiftui_uuiResize", width, height);
+        this.runtime.call("swift_ffi_uuiResize", width, height);
     }
     uuiTextChanged(text) {
         const b0 = stageString(this.runtime, text);
-        this.runtime.call("swift_ffi_swiftui_uuiTextChanged", b0.ptr, b0.len);
+        this.runtime.call("swift_ffi_uuiTextChanged", b0.ptr, b0.len);
         b0.drop();
     }
     uuiTextSubmitted() {
-        this.runtime.call("swift_ffi_swiftui_uuiTextSubmitted");
+        this.runtime.call("swift_ffi_uuiTextSubmitted");
     }
     uuiTextEnded() {
-        this.runtime.call("swift_ffi_swiftui_uuiTextEnded");
+        this.runtime.call("swift_ffi_uuiTextEnded");
     }
     uuiHostEvent(id, value) {
         const b0 = stageString(this.runtime, id);
         const b1 = stageString(this.runtime, value);
-        this.runtime.call("swift_ffi_swiftui_uuiHostEvent", b0.ptr, b0.len, b1.ptr, b1.len);
+        this.runtime.call("swift_ffi_uuiHostEvent", b0.ptr, b0.len, b1.ptr, b1.len);
         b0.drop();
         b1.drop();
     }
@@ -891,24 +1270,25 @@ export class SwiftUI {
 export async function load(wasm, options) {
     let memory;
     let runtime;
-    // Dispatches Swift's calls on foreign proxies / closures to the
-    // registered consumer implementations. Buffers arrive as (ptr, len)
-    // and return packed as (len << 32) | ptr with bytes from swift_ffi_swiftui_alloc.
+    // Buffer helpers for the dispatch channel: buffers arrive as
+    // (ptr, len) borrowed and return packed as (len << 32) | ptr with
+    // bytes from swift_ffi_alloc, ownership transferred to the guest.
     const foreignBytes = (ptr, len) => len === 0 ? new Uint8Array(0) : new Uint8Array(memory.buffer, ptr, len).slice();
     const foreignString = (ptr, len) => len === 0 ? "" : decoder.decode(new Uint8Array(memory.buffer, ptr, len));
     const packForeignBytes = (bytes) => {
         if (bytes.length === 0)
             return 0n;
-        const ptr = runtime.call("swift_ffi_swiftui_alloc", bytes.length);
+        const ptr = runtime.call("swift_ffi_alloc", bytes.length);
         new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
         return (BigInt(bytes.length) << 32n) | BigInt(ptr >>> 0);
     };
-    const packForeignString = (value) => packForeignBytes(encoder.encode(value));
     const swiftFFIImports = {
-        "swift_ffi_swiftui_closure_invoke": (id, argsPtr, argsLen) => {
+        closure_invoke: (id, argsPtr, argsLen) => {
             const dispatcher = foreignObjects.get(id);
             let result;
             try {
+                if (!dispatcher)
+                    throw new Error(`no foreign object ${id}`);
                 result = dispatcher(foreignBytes(argsPtr, argsLen));
             }
             catch (error) {
@@ -916,168 +1296,30 @@ export async function load(wasm, options) {
             }
             return packForeignBytes(result);
         },
-        "swift_ffi_swiftui_foreign_release": (id) => {
+        foreign_release: (id) => {
             foreignObjects.delete(id);
         },
-        "swift_ffi_swiftui_dependency_get": (keyPtr, keyLen) => {
+        dependency_get: (keyPtr, keyLen) => {
             const dep = options?.dependencies?.[foreignString(keyPtr, keyLen)];
             if (!dep)
                 return 0n;
-            const id = registerForeign(dep.dispatcher);
-            return (BigInt(dep.lazy ? 1 : 0) << 48n) | (BigInt(dep.ordinal) << 32n) | BigInt(id >>> 0);
+            const w = new BlobWriter();
+            w.header(Tags.list, 0);
+            w.i64(3n);
+            Types.bool.encode(w, dep.lazy);
+            Types.string.encode(w, dep.key);
+            Types.int32.encode(w, registerForeign(dep.dispatcher));
+            return packForeignBytes(w.data());
         },
-        "swift_ffi_swiftui_foreign_P2PRCHost_createOffer": (id, p0, p1, p1_len) => {
-            foreignObjects.get(id).createOffer(p0, foreignString(p1, p1_len));
+        task_enqueue: (job) => {
+            queueMicrotask(() => {
+                runtime.call("swift_ffi_task_run", job);
+            });
         },
-        "swift_ffi_swiftui_foreign_P2PRCHost_acceptOffer": (id, p0, p1, p1_len, p2, p2_len) => {
-            foreignObjects.get(id).acceptOffer(p0, foreignString(p1, p1_len), foreignString(p2, p2_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_acceptAnswer": (id, p0, p1, p1_len, p2, p2_len) => {
-            foreignObjects.get(id).acceptAnswer(p0, foreignString(p1, p1_len), foreignString(p2, p2_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_sendFrame": (id, p0, p0_len, p1, p1_len) => {
-            foreignObjects.get(id).sendFrame(foreignString(p0, p0_len), foreignString(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_closeConnection": (id, p0, p0_len) => {
-            foreignObjects.get(id).closeConnection(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_save": (id, p0, p0_len, p1, p1_len) => {
-            foreignObjects.get(id).save(foreignString(p0, p0_len), foreignString(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_load": (id, p0, p1, p1_len) => {
-            foreignObjects.get(id).load(p0, foreignString(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_pageURL": (id, p0) => {
-            foreignObjects.get(id).pageURL(p0);
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_openingHash": (id, p0) => {
-            foreignObjects.get(id).openingHash(p0);
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_setHash": (id, p0, p0_len) => {
-            foreignObjects.get(id).setHash(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_publishAnswer": (id, p0, p0_len) => {
-            foreignObjects.get(id).publishAnswer(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_drawQR": (id, p0, p0_len, p1, p1_len) => {
-            foreignObjects.get(id).drawQR(foreignString(p0, p0_len), foreignString(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_share": (id, p0, p0_len) => {
-            foreignObjects.get(id).share(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_saveQR": (id, p0, p0_len) => {
-            foreignObjects.get(id).saveQR(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_scanQR": (id, p0) => {
-            foreignObjects.get(id).scanQR(p0);
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_capabilities": (id, p0) => {
-            foreignObjects.get(id).capabilities(p0);
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_httpGet": (id, p0, p1, p1_len) => {
-            foreignObjects.get(id).httpGet(p0, foreignString(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_delay": (id, p0, p1) => {
-            foreignObjects.get(id).delay(p0, p1);
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_stunLookup": (id, p0, p1, p1_len) => {
-            foreignObjects.get(id).stunLookup(p0, foreignString(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_startServer": (id, p0, p1, p1_len) => {
-            foreignObjects.get(id).startServer(p0, foreignString(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_publishDirectory": (id, p0, p0_len) => {
-            foreignObjects.get(id).publishDirectory(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_setIceServers": (id, p0, p0_len) => {
-            foreignObjects.get(id).setIceServers(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_callStart": (id, p0, p1, p1_len) => {
-            foreignObjects.get(id).callStart(p0, foreignString(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_callApplyRemote": (id, p0, p1, p1_len, p2, p2_len, p3) => {
-            foreignObjects.get(id).callApplyRemote(p0, foreignString(p1, p1_len), foreignString(p2, p2_len), p3 !== 0);
-        },
-        "swift_ffi_swiftui_foreign_P2PRCHost_callEnd": (id, p0, p0_len) => {
-            foreignObjects.get(id).callEnd(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_GPUWebHost_gpuCreateTexture": (id, p0, p1, p2, p3, p3_len) => {
-            foreignObjects.get(id).gpuCreateTexture(p0, p1, p2, foreignBytes(p3, p3_len));
-        },
-        "swift_ffi_swiftui_foreign_GPUWebHost_gpuDestroyTexture": (id, p0) => {
-            foreignObjects.get(id).gpuDestroyTexture(p0);
-        },
-        "swift_ffi_swiftui_foreign_GPUWebHost_gpuBeginFrame": (id, p0, p1, p2, p3) => {
-            foreignObjects.get(id).gpuBeginFrame(p0, p1, p2, p3);
-        },
-        "swift_ffi_swiftui_foreign_GPUWebHost_gpuSetTransform": (id, p0, p0_len) => {
-            foreignObjects.get(id).gpuSetTransform(foreignBytes(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_GPUWebHost_gpuDrawTextured": (id, p0, p1, p1_len) => {
-            foreignObjects.get(id).gpuDrawTextured(p0, foreignBytes(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_GPUWebHost_gpuDrawColor": (id, p0, p0_len) => {
-            foreignObjects.get(id).gpuDrawColor(foreignBytes(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_GPUWebHost_gpuDrawRects": (id, p0, p0_len) => {
-            foreignObjects.get(id).gpuDrawRects(foreignBytes(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_GPUWebHost_gpuSetScissor": (id, p0, p1, p2, p3) => {
-            foreignObjects.get(id).gpuSetScissor(p0, p1, p2, p3);
-        },
-        "swift_ffi_swiftui_foreign_GPUWebHost_gpuClearScissor": (id) => {
-            foreignObjects.get(id).gpuClearScissor();
-        },
-        "swift_ffi_swiftui_foreign_GPUWebHost_gpuEndFrame": (id) => {
-            foreignObjects.get(id).gpuEndFrame();
-        },
-        "swift_ffi_swiftui_foreign_WebHost_measureText": (id, p0, p0_len, p1, p2, p3) => {
-            return packForeignBytes(encodeWith(TextMetricsType, foreignObjects.get(id).measureText(foreignString(p0, p0_len), p1, p2, p3)));
-        },
-        "swift_ffi_swiftui_foreign_WebHost_imageInfo": (id, p0, p0_len, p1) => {
-            return packForeignBytes(encodeWith(ImageInfoValueType, foreignObjects.get(id).imageInfo(foreignString(p0, p0_len), p1 !== 0)));
-        },
-        "swift_ffi_swiftui_foreign_WebHost_syncHostViews": (id, p0, p0_len) => {
-            foreignObjects.get(id).syncHostViews(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_WebHost_beginTextInput": (id, p0, p0_len, p1, p2, p3, p4, p5) => {
-            foreignObjects.get(id).beginTextInput(foreignString(p0, p0_len), p1, p2, p3, p4, p5);
-        },
-        "swift_ffi_swiftui_foreign_WebHost_endTextInput": (id) => {
-            foreignObjects.get(id).endTextInput();
-        },
-        "swift_ffi_swiftui_foreign_WebHost_scheduleRender": (id) => {
-            foreignObjects.get(id).scheduleRender();
-        },
-        "swift_ffi_swiftui_foreign_WebHost_setColorScheme": (id, p0) => {
-            foreignObjects.get(id).setColorScheme(p0 !== 0);
-        },
-        "swift_ffi_swiftui_foreign_WebHost_now": (id) => {
-            return foreignObjects.get(id).now();
-        },
-        "swift_ffi_swiftui_foreign_WebHost_rasterize": (id, p0, p0_len) => {
-            return packForeignBytes(foreignObjects.get(id).rasterize(foreignString(p0, p0_len)));
-        },
-        "swift_ffi_swiftui_foreign_WebHost_storageGet": (id, p0, p0_len) => {
-            return packForeignBytes(encodeWith(StoredValueType, foreignObjects.get(id).storageGet(foreignString(p0, p0_len))));
-        },
-        "swift_ffi_swiftui_foreign_WebHost_storageSet": (id, p0, p0_len, p1, p1_len) => {
-            foreignObjects.get(id).storageSet(foreignString(p0, p0_len), foreignString(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_WebHost_log": (id, p0, p0_len) => {
-            foreignObjects.get(id).log(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_WebHost_openURL": (id, p0, p0_len) => {
-            foreignObjects.get(id).openURL(foreignString(p0, p0_len));
-        },
-        "swift_ffi_swiftui_foreign_WebHost_platformCommand": (id, p0, p0_len, p1, p1_len) => {
-            foreignObjects.get(id).platformCommand(foreignString(p0, p0_len), foreignString(p1, p1_len));
-        },
-        "swift_ffi_swiftui_foreign_WebHost_epochMillis": (id) => {
-            return foreignObjects.get(id).epochMillis();
-        },
-        "swift_ffi_swiftui_foreign_WebHost_renderTree": (id, p0, p0_len) => {
-            foreignObjects.get(id).renderTree(foreignBytes(p0, p0_len));
+        async_complete: (callId, blobPtr, blobLen) => {
+            void callId;
+            void blobPtr;
+            void blobLen;
         },
     };
     const imports = {
@@ -1092,9 +1334,10 @@ export async function load(wasm, options) {
     const instance = await WebAssembly.instantiate(module, imports);
     memory = instance.exports.memory;
     instance.exports._initialize();
-    runtime = new Runtime(instance.exports, "swift_ffi_swiftui_");
-    if (options?.dependencies) {
-        runtime.call("swift_ffi_swiftui_install_dependencies");
-    }
+    runtime = new Runtime(instance.exports);
+    // Register the interfaces' dependency-proxy factories (docs/wasm_di.md).
+    runtime.call("swift_ffi_p2prc_register_P2PRCHost");
+    runtime.call("swift_ffi_register_GPUWebHost");
+    runtime.call("swift_ffi_register_WebHost");
     return new SwiftUI(runtime);
 }

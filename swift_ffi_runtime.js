@@ -11,17 +11,19 @@
 // wrappers after they are garbage collected.
 export class Runtime {
     memory;
-    /** The Swift module's C-symbol prefix (e.g. "swiftui_"). */
-    prefix;
     exports;
-    constructor(exports, prefix) {
+    constructor(exports) {
         this.exports = exports;
-        this.prefix = prefix;
         this.memory = exports.memory;
     }
     call(name, ...args) {
         const fn = this.exports[name];
         return fn(...args);
+    }
+    /** True when the reactor exports `name` (e.g. an interface's register
+     * entry point). */
+    has(name) {
+        return typeof this.exports[name] === "function";
     }
 }
 export const encoder = new TextEncoder();
@@ -30,23 +32,23 @@ export function stageBytes(runtime, bytes) {
     if (bytes.length === 0) {
         return { ptr: 0, len: 0, drop() { } };
     }
-    const ptr = runtime.call(runtime.prefix + "alloc", bytes.length);
+    const ptr = runtime.call("swift_ffi_alloc", bytes.length);
     new Uint8Array(runtime.memory.buffer, ptr, bytes.length).set(bytes);
-    return { ptr, len: bytes.length, drop: () => runtime.call(runtime.prefix + "dealloc", ptr) };
+    return { ptr, len: bytes.length, drop: () => runtime.call("swift_ffi_dealloc", ptr) };
 }
 export function stageString(runtime, value) {
     return stageBytes(runtime, encoder.encode(value));
 }
 export function takeBytes(runtime, handle) {
-    const len = runtime.call(runtime.prefix + "string_len", handle);
+    const len = runtime.call("swift_ffi_string_len", handle);
     let result = new Uint8Array(0);
     if (len > 0) {
-        const ptr = runtime.call(runtime.prefix + "alloc", len);
-        runtime.call(runtime.prefix + "string_copy", handle, ptr);
+        const ptr = runtime.call("swift_ffi_alloc", len);
+        runtime.call("swift_ffi_string_copy", handle, ptr);
         result = new Uint8Array(runtime.memory.buffer, ptr, len).slice();
-        runtime.call(runtime.prefix + "dealloc", ptr);
+        runtime.call("swift_ffi_dealloc", ptr);
     }
-    runtime.call(runtime.prefix + "string_release", handle);
+    runtime.call("swift_ffi_string_release", handle);
     return result;
 }
 export function takeString(runtime, handle) {
@@ -57,20 +59,17 @@ export const registry = new FinalizationRegistry((release) => release());
 /** A Swift error surfaced across the bridge (message only). */
 export class SwiftError extends Error {
 }
-// In-flight async calls, keyed by call id, awaiting their completion import.
 export const pendingCalls = new Map();
 let callId = 0;
 export function nextCallId() {
     callId += 1;
     return callId;
 }
-// Consumer implementations passed into Swift are parked here; Swift's
-// foreign proxy releases its entry when ARC drops the proxy.
 export const foreignObjects = new Map();
 let foreignId = 0;
-export function registerForeign(value) {
+export function registerForeign(dispatcher) {
     foreignId += 1;
-    foreignObjects.set(foreignId, value);
+    foreignObjects.set(foreignId, dispatcher);
     return foreignId;
 }
 const WASI_SUCCESS = 0;
@@ -190,6 +189,7 @@ export const Tags = {
     list: 8,
     handle: 9,
     error: 10,
+    foreign: 11,
 };
 export class BlobWriter {
     chunks = [];
@@ -217,6 +217,12 @@ export class BlobWriter {
     }
     header(tag, aux) {
         return this.i32(tag).i32(aux);
+    }
+    /** A STRUCT/HANDLE/FOREIGN header: types are identified on the wire by
+     * NAME (aux is the name's byte length, the name follows). */
+    typeHeader(tag, name) {
+        const bytes = encoder.encode(name);
+        return this.i32(tag).i32(bytes.length).bytes(bytes);
     }
     push(bytes) {
         for (const byte of bytes)
@@ -254,6 +260,39 @@ export class BlobReader {
         this.cursor += count;
         return v;
     }
+    /** True when every byte has been consumed. */
+    get done() {
+        return this.cursor >= this.raw.byteLength;
+    }
+}
+/** Reads a (tag, aux) header where aux is a type-name byte length, returning
+ * the tag and the name (STRUCT/HANDLE/FOREIGN carry names; other tags have
+ * aux 0 and an empty name). */
+export function readTypeHeader(r) {
+    const tag = r.i32();
+    const aux = r.i32();
+    const name = aux > 0 ? decoder.decode(r.bytes(aux)) : "";
+    return { tag, name };
+}
+/** Reads a HANDLE value (a +1 or borrowed Swift box, per direction),
+ * returning its bits. */
+export function readHandleBits(r, expected) {
+    const { tag, name } = readTypeHeader(r);
+    if (tag !== Tags.handle)
+        throw new SwiftError(`expected ${expected} handle, got tag ${tag}`);
+    if (name && name !== expected)
+        throw new SwiftError(`expected ${expected}, got ${name}`);
+    return Number(r.i64());
+}
+/** Writes a HANDLE value (an interface instance by Swift box handle). */
+export function writeHandle(w, name, bits) {
+    w.typeHeader(Tags.handle, name);
+    w.i64(BigInt(bits));
+}
+/** Writes a FOREIGN value (a consumer implementation by foreign-registry id). */
+export function writeForeign(w, name, id) {
+    w.typeHeader(Tags.foreign, name);
+    w.i64(BigInt(id));
 }
 function scalar(tag, write, read, name) {
     return {
@@ -362,6 +401,18 @@ export function encodeWith(type, value) {
 export function decodeWith(type, bytes) {
     return type.decode(new BlobReader(bytes));
 }
+/** If the blob is an ERROR blob, its message (the invoke/closure failure
+ * channel); null otherwise. */
+export function errorMessageOf(bytes) {
+    if (bytes.byteLength < 4)
+        return null;
+    const r = new BlobReader(bytes);
+    const tag = r.i32();
+    if (tag !== Tags.error)
+        return null;
+    r.i32();
+    return decoder.decode(r.bytes(Number(r.i64())));
+}
 /** Encodes an error message as an ERROR blob (closure failure channel). */
 export function encodeErrorBlob(message) {
     const bytes = encoder.encode(message);
@@ -380,13 +431,13 @@ export class Lazy {
         this.runtime = runtime;
         this.type = type;
         this.handle = handle;
-        registry.register(this, () => runtime.call(runtime.prefix + "lazy_release", handle), this);
+        registry.register(this, () => runtime.call("swift_ffi_lazy_release", handle), this);
     }
     value() {
         if (!this.hasValue) {
             if (this.handle === 0)
                 throw new Error("Lazy used after close()");
-            const box = this.runtime.call(this.runtime.prefix + "lazy_get", this.handle);
+            const box = this.runtime.call("swift_ffi_lazy_get", this.handle);
             this.cached = decodeWith(this.type, takeBytes(this.runtime, box));
             this.hasValue = true;
             this.close();
@@ -397,7 +448,7 @@ export class Lazy {
     close() {
         if (this.handle !== 0) {
             registry.unregister(this);
-            this.runtime.call(this.runtime.prefix + "lazy_release", this.handle);
+            this.runtime.call("swift_ffi_lazy_release", this.handle);
             this.handle = 0;
         }
     }
