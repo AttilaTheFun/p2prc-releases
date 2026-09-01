@@ -238,8 +238,13 @@
       closeConnection(peer) { closeEntry(peer); },
       setIceServers(json) {
         try {
-          const urls = JSON.parse(json);
-          if (Array.isArray(urls) && urls.length) STUN = urls.map((u) => ({ urls: u }));
+          // Entries are { urls, username?, credential? }: STUN bare, TURN
+          // with the credentials a relay minted for us. (Older guests sent
+          // bare URL strings; accept those too.)
+          const entries = JSON.parse(json);
+          if (Array.isArray(entries) && entries.length) {
+            STUN = entries.map((e) => typeof e === "string" ? { urls: e } : e);
+          }
         } catch (e) {}
       },
       // --- Calls: audio on the same pc, renegotiated over the channel. ----
