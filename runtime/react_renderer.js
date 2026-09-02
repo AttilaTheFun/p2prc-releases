@@ -248,9 +248,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           color: active ? "#0a84ff" : "rgba(0,0,0,0.55)",
         },
       },
-        p["icon" + i]
-          ? h("img", { src: `${assetBase}${p["icon" + i]}.png`, style: { width: 24, height: 24, objectFit: "contain" } })
-          : null,
+        p["glyph" + i]
+          ? h("span", { style: { fontSize: 22, lineHeight: "24px" } }, p["glyph" + i])
+          : p["icon" + i]
+            ? h("img", { src: `${assetBase}${p["icon" + i]}.png`, style: { width: 24, height: 24, objectFit: "contain" } })
+            : null,
         h("span", null, p["label" + i] || "")));
     }
     return h("div", {
@@ -331,8 +333,120 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   // split view. On a COMPACT container it collapses to a single-pane drill
   // (like SwiftUI's own split view on an iPhone): a tap inside the visible
   // column advances to the next pane, the back row retreats.
-  function NavSplit({ dark, kids }) {
-    const [pane, setPane] = R.useState(0);
+  // `.tabViewStyle(.sidebarAdaptable)` (the modern Tab/TabSection form):
+  // macOS semantics on the web — ALWAYS a sidebar (TabSections as groups,
+  // like the navsplit sidebar column) regardless of width, with the
+  // standard collapse/expand toggle at the top leading edge; collapsed,
+  // the panes take the full width and the floating toggle brings it back.
+  // The collapsed state persists per browser (localStorage). Labels carry
+  // SF-symbol text glyphs (`glyph<i>`) mapped by the guest.
+  function SidebarTabs({ n, kids }) {
+    const p = n.params || {};
+    const dark = p.dark === "1";
+    const count = Number(p.count || 0);
+    const selected = Number(p.selected || 0);
+    const [collapsed, setCollapsed] = R.useState(() => {
+      try { return localStorage.getItem("uui-sidebar-collapsed") === "1"; }
+      catch (_) { return false; }
+    });
+    const toggle = () => setCollapsed((value) => {
+      try { localStorage.setItem("uui-sidebar-collapsed", value ? "0" : "1"); }
+      catch (_) {}
+      return !value;
+    });
+    // The macOS sidebar.leading control, inline SVG (crisper than a glyph).
+    const toggleButton = (extra) => h("button", {
+      key: "toggle",
+      title: collapsed ? "Show Sidebar" : "Hide Sidebar",
+      onClick: toggle,
+      style: {
+        border: "none", background: "none", cursor: "pointer", padding: 6,
+        borderRadius: 6, display: "flex", alignItems: "center",
+        color: dark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)",
+        ...extra,
+      },
+    }, h("svg", { width: 18, height: 16, viewBox: "0 0 18 16" },
+      h("rect", { x: 0.75, y: 0.75, width: 16.5, height: 14.5, rx: 3, fill: "none", stroke: "currentColor", strokeWidth: 1.5 }),
+      h("line", { x1: 6.5, y1: 1, x2: 6.5, y2: 15, stroke: "currentColor", strokeWidth: 1.5 }),
+      h("rect", { x: 2, y: 3, width: 3, height: 1.6, rx: 0.8, fill: "currentColor" }),
+      h("rect", { x: 2, y: 6, width: 3, height: 1.6, rx: 0.8, fill: "currentColor" })));
+    const content = h("div", {
+      key: "content",
+      style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, alignSelf: "stretch" },
+    }, kids);
+    if (collapsed) {
+      return h("div", {
+        style: { position: "relative", display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
+      },
+        content,
+        h("div", { key: "float", style: { position: "absolute", top: 8, left: 8, zIndex: 20 } },
+          toggleButton({ background: dark ? "rgba(30,30,32,0.85)" : "rgba(247,247,247,0.9)", boxShadow: "0 1px 4px rgba(0,0,0,0.25)" })));
+    }
+    // Group by section title, ungrouped tabs first, preserving order.
+    const rows = [];
+    let lastSection = "";
+    for (let i = 0; i < count; i++) {
+      const section = p["section" + i] || "";
+      if (section !== lastSection && section) {
+        rows.push(h("div", {
+          key: `s${i}`,
+          style: {
+            padding: "14px 14px 4px", fontSize: 11, fontWeight: 600,
+            textTransform: "uppercase", letterSpacing: "0.4px",
+            color: dark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.45)",
+          },
+        }, section));
+      }
+      lastSection = section;
+      const active = i === selected;
+      rows.push(h("button", {
+        key: i,
+        onClick: () => sendEvent(n.edit, String(i)),
+        style: {
+          display: "flex", alignItems: "center", gap: 9, width: "calc(100% - 12px)",
+          margin: "1px 6px", padding: "7px 9px", border: "none", cursor: "pointer",
+          borderRadius: 7, textAlign: "left", fontSize: 13.5,
+          fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+          background: active ? (dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.08)") : "none",
+          color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+        },
+      },
+        p["glyph" + i]
+          ? h("span", { style: { fontSize: 15, width: 22, textAlign: "center", color: "#0a84ff" } }, p["glyph" + i])
+          : null,
+        h("span", null, p["label" + i] || "")));
+    }
+    const sidebarBg = dark ? "rgba(30,30,32,0.94)" : "rgba(247,247,247,0.94)";
+    return h("div", {
+      style: { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
+    },
+      h("div", {
+        key: "sidebar",
+        style: {
+          width: 220, flex: "none", display: "flex", flexDirection: "column",
+          minHeight: 0, alignSelf: "stretch", background: sidebarBg,
+          overflowY: "auto",
+        },
+      },
+        h("div", { key: "head", style: { display: "flex", padding: "6px 6px 2px" } }, toggleButton()),
+        rows),
+      h("div", {
+        key: "d0",
+        style: { width: 1, flex: "none", alignSelf: "stretch", background: dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)" },
+      }),
+      content);
+  }
+
+  function NavSplit({ dark, kids, preferredPane, edit }) {
+    // `preferredCompactColumn`: the compact presentation starts on the
+    // guest's preferred column and reports pane changes back so the app's
+    // binding tracks ("compact:<column>" on the navsplit's event channel).
+    const paneNames = ["sidebar", "content", "detail"];
+    const [pane, setPaneState] = R.useState(preferredPane ?? 0);
+    const setPane = (next) => {
+      setPaneState(next);
+      if (edit) sendEvent(edit, "compact:" + paneNames[next]);
+    };
     const compact = window.innerWidth < 700;
     const divider = (k) => h("div", {
       key: k,
@@ -386,13 +500,46 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   }
 
   function navSplit(n, key, kids) {
-    return h(NavSplit, { key, dark: (n.params || {}).dark === "1", kids });
+    const p = n.params || {};
+    const preferred = { sidebar: 0, content: 1, detail: 2 }[p.compact];
+    return h(NavSplit, {
+      key, dark: p.dark === "1", kids,
+      preferredPane: preferred, edit: n.edit,
+    });
   }
 
   // Pointer-drag state for the `map` host view (one pointer pans at a time).
   const mapDrag = { active: false, x: 0, y: 0 };
 
   // A scroll pinned to its bottom edge (`.defaultScrollAnchor(.bottom)`):
+  // GeometryReader measurement: observe the wrapper div's border-box and
+  // send each size the host lays out to the guest (deduped per element; a
+  // same-size re-report after a remount is harmless — the guest's rebuild is
+  // identical, the patch is empty, and the observer quiesces). Sizes are CSS
+  // pixels — the same logical points the guest's canvas size uses.
+  function GeometryBox({ divProps, geoId, children }) {
+    const ref = R.useRef(null);
+    const lastSent = R.useRef("");
+    R.useLayoutEffect(() => {
+      const el = ref.current;
+      if (!el) return undefined;
+      const report = () => {
+        const w = Math.round(el.clientWidth);
+        const h2 = Math.round(el.clientHeight);
+        if (w <= 0 || h2 <= 0) return;
+        const value = `${w}x${h2}`;
+        if (lastSent.current === value) return;
+        lastSent.current = value;
+        sendEvent(geoId, value);
+      };
+      report();
+      const observer = new ResizeObserver(report);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, [geoId]);
+    return h("div", { ...divProps, ref }, children);
+  }
+
   // starts at the newest content and follows growth while the user is at the
   // bottom; scrolling up unpins until they return (within a small slop).
   function BottomAnchoredScroll({ divProps, children }) {
@@ -727,6 +874,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         if (n.view === "navstack") return navStack(n, key, kids);
         if (n.view === "navsplit") return navSplit(n, key, kids);
         if (n.view === "tabs") {
+          if ((n.params || {}).style === "sidebarAdaptable") {
+            return h(SidebarTabs, { key, n, kids });
+          }
           // Semantic tabs → the selected tab's content over the bottom bar.
           return h("div", {
             key,
@@ -756,6 +906,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           s.boxSizing = "border-box";
           s.justifyContent = "center";
           s.borderBottom = "1px solid rgba(120,120,128,0.2)";
+        }
+        // A GeometryReader wrapper: measure the box the host actually laid
+        // out and report it back ("<w>x<h>" on the `.geo` id), so the guest
+        // rebuilds the reader's content against its CONTAINER, not the
+        // canvas. The guest ignores same-size re-reports (empty patch), so
+        // remounts converge.
+        if ((n.params || {}).geo) {
+          return h(GeometryBox, { key, divProps: props, geoId: n.params.geo }, kids);
         }
         return h("div", props, kids);
       }
