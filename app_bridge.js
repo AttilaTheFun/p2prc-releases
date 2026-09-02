@@ -391,13 +391,37 @@ export class SwiftP2PRCHost {
         if (failure !== null)
             throw new SwiftError(failure);
     }
+    localTURN(requestID) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 22, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    relaySpend(requestID) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 23, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
     callStart(requestID, peer) {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
         Types.int32.encode(w, requestID);
         Types.string.encode(w, peer);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 22, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 24, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -412,7 +436,7 @@ export class SwiftP2PRCHost {
         Types.string.encode(w, sdp);
         Types.bool.encode(w, isOffer);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 23, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 25, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -424,7 +448,7 @@ export class SwiftP2PRCHost {
         const w = new BlobWriter();
         Types.string.encode(w, peer);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 24, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 26, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -564,11 +588,21 @@ export function makeDispatcher_P2PRCHost(impl, runtime) {
             }
             case 22: {
                 const a0 = Types.int32.decode(r);
+                impl.localTURN(a0);
+                return new Uint8Array(0);
+            }
+            case 23: {
+                const a0 = Types.int32.decode(r);
+                impl.relaySpend(a0);
+                return new Uint8Array(0);
+            }
+            case 24: {
+                const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.callStart(a0, a1);
                 return new Uint8Array(0);
             }
-            case 23: {
+            case 25: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 const a2 = Types.string.decode(r);
@@ -576,7 +610,7 @@ export function makeDispatcher_P2PRCHost(impl, runtime) {
                 impl.callApplyRemote(a0, a1, a2, a3);
                 return new Uint8Array(0);
             }
-            case 24: {
+            case 26: {
                 const a0 = Types.string.decode(r);
                 impl.callEnd(a0);
                 return new Uint8Array(0);

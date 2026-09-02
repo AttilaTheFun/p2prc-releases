@@ -332,6 +332,11 @@
         done(requestID, false, "");
       },
       publishDirectory() {},
+      // A browser tab holds no Cloudflare key and cannot serve /turn, so it
+      // brokers no relay of its own and reports no spend — it only consumes
+      // credentials other peers broker.
+      localTURN(requestID) { done(requestID, true, ""); },
+      relaySpend(requestID) { done(requestID, true, ""); },
 
       share(text) {
         if (navigator.share) { navigator.share({ text }).catch(() => {}); return; }
