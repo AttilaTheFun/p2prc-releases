@@ -200,6 +200,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     const split = (key) => (p[key] ? p[key].split("\n") : []);
     const leading = split("leading");
     const trailing = split("trailingItems");
+    // `.principal`: the trailing item at this index renders centered in
+    // place of the title (a tappable pill), the way a macOS/iOS bar does.
+    const principal = p.principal === "" || p.principal == null ? -1 : Number(p.principal);
     // Symmetric side clusters keep the title centered.
     const side = { display: "flex", alignItems: "center", minWidth: 64, flex: "0 0 auto" };
     return h("div", { style: bar },
@@ -223,9 +226,18 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           minWidth: 0,
           opacity: p.large === "1" ? Number(p.inlineAlpha || 1) : 1,
         },
-      }, p.title || ""),
+      }, principal >= 0
+        ? h("button", {
+            style: {
+              ...button, fontWeight: 600, fontSize: 15, padding: "4px 12px",
+              borderRadius: 14, background: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)",
+              color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+            },
+            onClick: () => sendEvent(n.edit, `trailingItem:${principal}`),
+          }, trailing[principal] || "")
+        : (p.title || "")),
       h("div", { style: { ...side, justifyContent: "flex-end" } },
-        trailing.map((title, i) => h("button", {
+        trailing.map((title, i) => i === principal ? null : h("button", {
           key: `t${i}`, style: button,
           onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
         }, title))));
@@ -286,6 +298,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           dark: p.dark,
           leading: p.leading,
           trailingItems: p.trailingItems,
+          principal: p.principal,
         },
       })));
     }
@@ -437,12 +450,16 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       content);
   }
 
-  function NavSplit({ dark, kids, preferredPane, edit }) {
+  function NavSplit({ dark, kids, preferredPane, edit, sidebarWidth, contentWidth }) {
     // `preferredCompactColumn`: the compact presentation starts on the
     // guest's preferred column and reports pane changes back so the app's
     // binding tracks ("compact:<column>" on the navsplit's event channel).
-    const paneNames = ["sidebar", "content", "detail"];
-    const [pane, setPaneState] = R.useState(preferredPane ?? 0);
+    // Two-column splits (sidebar + detail, no content child) have one fewer
+    // pane; the preferred column clamps into range.
+    const paneCount = kids.length;
+    const paneNames = paneCount === 2 ? ["sidebar", "detail"] : ["sidebar", "content", "detail"];
+    const lastPane = paneCount - 1;
+    const [pane, setPaneState] = R.useState(Math.min(preferredPane ?? 0, lastPane));
     const setPane = (next) => {
       setPaneState(next);
       if (edit) sendEvent(edit, "compact:" + paneNames[next]);
@@ -464,12 +481,20 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, kid);
     const sidebarBg = dark ? "rgba(30,30,32,0.94)" : "rgba(247,247,247,0.94)";
     if (!compact) {
+      if (paneCount === 2) {
+        return h("div", {
+          style: { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
+        },
+          column("sidebar", sidebarWidth, kids[0], sidebarBg),
+          divider("d0"),
+          column("detail", null, kids[1]));
+      }
       return h("div", {
         style: { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
       },
-        column("sidebar", 240, kids[0], sidebarBg),
+        column("sidebar", sidebarWidth, kids[0], sidebarBg),
         divider("d0"),
-        column("content", 340, kids[1]),
+        column("content", contentWidth, kids[1]),
         divider("d1"),
         column("detail", null, kids[2]));
     }
@@ -493,7 +518,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       pane === 0 ? sidebarBg : undefined,
       // Capture phase: row handlers stopPropagation, so the bubble never
       // arrives — capture runs first and the row's own tap still fires.
-      pane < 2 ? { onClickCapture: () => setPane(pane + 1) } : undefined));
+      pane < lastPane ? { onClickCapture: () => setPane(pane + 1) } : undefined));
     return h("div", {
       style: { display: "flex", flexDirection: "column", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
     }, rows);
@@ -501,10 +526,15 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
 
   function navSplit(n, key, kids) {
     const p = n.params || {};
-    const preferred = { sidebar: 0, content: 1, detail: 2 }[p.compact];
+    const preferred = p.columns === "2"
+      ? { sidebar: 0, content: 0, detail: 1 }[p.compact]
+      : { sidebar: 0, content: 1, detail: 2 }[p.compact];
     return h(NavSplit, {
       key, dark: p.dark === "1", kids,
       preferredPane: preferred, edit: n.edit,
+      // `.navigationSplitViewColumnWidth` hints (sidebarWidth/contentWidth).
+      sidebarWidth: Number(p.sidebarWidth) || 240,
+      contentWidth: Number(p.contentWidth) || 340,
     });
   }
 
