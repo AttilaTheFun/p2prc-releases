@@ -888,10 +888,35 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         },
       }, head), ...kids];
     }
+    // Sheets: Apple's shapes. Regular width → a centered modal card;
+    // compact → a bottom sheet. Greedy content (a NavigationStack / List /
+    // Form — anything that grows) gets an EXPLICIT height so it lays out
+    // and scrolls inside the panel: the scroll node is `flex: 1 1 0`, which
+    // collapses to nothing inside an auto-height panel (the sheet then sat
+    // mostly below the fold). Content-sized sheets (a few buttons) stay auto.
+    const compact = window.innerWidth < 700;
+    const child = (n.ch || [])[0] || {};
+    const greedy = !!child.growH || !!child.expandH;
+    const sheetStyle = compact
+      ? {
+          background: panelBg, borderTopLeftRadius: 14, borderTopRightRadius: 14,
+          width: "100%", boxSizing: "border-box",
+          height: greedy ? "calc(100% - 40px)" : "auto", maxHeight: "calc(100% - 40px)",
+          overflowY: "auto", padding: 16, boxShadow: "0 -8px 32px rgba(0,0,0,0.25)",
+          display: "flex", flexDirection: "column", alignItems: "stretch",
+        }
+      : {
+          background: panelBg, borderRadius: 14, boxSizing: "border-box",
+          width: greedy ? "min(560px, calc(100% - 64px))" : "auto",
+          minWidth: 280, maxWidth: "min(640px, calc(100% - 64px))",
+          height: greedy ? "min(85%, 760px)" : "auto", maxHeight: "calc(100% - 64px)",
+          overflowY: "auto", padding: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
+          display: "flex", flexDirection: "column", alignItems: "stretch",
+        };
     return h("div", {
       style: {
         position: "fixed", inset: 0, display: "flex", zIndex: 20,
-        alignItems: isAlert ? "center" : "flex-end", justifyContent: "center",
+        alignItems: isAlert || !compact ? "center" : "flex-end", justifyContent: "center",
         background: "rgba(0,0,0,0.35)",
       },
       onClick: () => sendEvent(n.dismiss, ""),
@@ -899,7 +924,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       onClick: (e) => e.stopPropagation(),
       style: isAlert
         ? { background: panelBg, borderRadius: 14, minWidth: 280, maxWidth: 420, padding: 20, boxShadow: "0 12px 40px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", alignItems: "center" }
-        : { background: panelBg, borderTopLeftRadius: 14, borderTopRightRadius: 14, width: "100%", maxWidth: 640, maxHeight: "85%", overflowY: "auto", padding: 16, boxShadow: "0 -8px 32px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", alignItems: "center" },
+        : sheetStyle,
     }, kids));
   }
 
