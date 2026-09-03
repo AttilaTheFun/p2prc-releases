@@ -264,7 +264,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           minWidth: 0,
           opacity: p.large === "1" ? Number(p.inlineAlpha || 1) : 1,
         },
-      }, principal >= 0
+      }, principal < 0 && p.subtitle
+        ? h("div", { style: { display: "flex", flexDirection: "column", lineHeight: 1.15 } },
+            h("span", null, p.title || ""),
+            h("span", { style: { fontSize: 12, fontWeight: 400, opacity: 0.6 } }, p.subtitle))
+        : principal >= 0
         ? trailingItem(principal, {
             fontWeight: 600, fontSize: 15, padding: "4px 12px",
             borderRadius: 14, background: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)",
@@ -326,6 +330,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         edit: n.edit,
         params: {
           title: inline || !p.title ? (p.title || "") : "",
+          subtitle: inline ? (p.subtitle || "") : "",
           back: depth > 0 ? "1" : "0",
           dark: p.dark,
           leading: p.leading,
@@ -341,11 +346,22 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       rows.push(h("div", {
         key: "title",
         style: {
-          fontSize: 34, fontWeight: 700, padding: "6px 16px 8px",
+          fontSize: 34, fontWeight: 700, padding: p.subtitle ? "6px 16px 0" : "6px 16px 8px",
           color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
           fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
         },
       }, p.title));
+      // `.navigationSubtitle`: small secondary line under the large title.
+      if (p.subtitle) {
+        rows.push(h("div", {
+          key: "subtitle",
+          style: {
+            fontSize: 15, padding: "0 16px 8px",
+            color: dark ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.5)",
+            fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+          },
+        }, p.subtitle));
+      }
     }
     if (p.searchPrompt != null && p.searchPrompt !== "") {
       rows.push(h("input", {
