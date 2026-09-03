@@ -181,6 +181,30 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     return h("input", { ...shared, type: n.searchStyle ? "search" : "text", style });
   }
 
+  // A segmented control (`.pickerStyle(.segmented)`, inline or in a bar).
+  function Segmented({ options, selected, dark, onSelect, compact }) {
+    return h("div", {
+      role: "tablist",
+      style: {
+        display: "inline-flex", padding: 2, borderRadius: 8, gap: 1,
+        background: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)",
+        fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+      },
+    }, options.map((label, i) => h("button", {
+      key: i,
+      role: "tab",
+      "aria-selected": i === selected,
+      onClick: () => onSelect(i),
+      style: {
+        border: "none", cursor: "pointer", borderRadius: 6,
+        padding: compact ? "3px 12px" : "4px 14px", fontSize: 13, fontWeight: 500,
+        background: i === selected ? (dark ? "rgba(120,120,128,0.8)" : "#fff") : "none",
+        color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+        boxShadow: i === selected ? "0 1px 3px rgba(0,0,0,0.15)" : "none",
+      },
+    }, label)));
+  }
+
   function navBar(n) {
     const p = n.params || {};
     const dark = p.dark === "1";
@@ -203,6 +227,20 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // `.principal`: the trailing item at this index renders centered in
     // place of the title (a tappable pill), the way a macOS/iOS bar does.
     const principal = p.principal === "" || p.principal == null ? -1 : Number(p.principal);
+    // Segmented toolbar items: per trailing item, U+001F-joined labels.
+    const segments = split("segments").map((s) => (s ? s.split("\u001f") : []));
+    const segmentSelected = split("segmentSelected").map((s) => Number(s) || 0);
+    const prominent = split("prominent");
+    const trailingItem = (i, extra) => segments[i] && segments[i].length
+      ? h(Segmented, {
+          key: `t${i}`, options: segments[i], selected: segmentSelected[i] || 0, dark, compact: true,
+          onSelect: (j) => sendEvent(n.edit, `segment:${i}:${j}`),
+        })
+      : h("button", {
+          key: `t${i}`,
+          style: { ...button, ...(prominent[i] === "1" ? { fontWeight: 600 } : {}), ...(extra || {}) },
+          onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
+        }, trailing[i] || "");
     // Symmetric side clusters keep the title centered.
     const side = { display: "flex", alignItems: "center", minWidth: 64, flex: "0 0 auto" };
     return h("div", { style: bar },
@@ -227,20 +265,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           opacity: p.large === "1" ? Number(p.inlineAlpha || 1) : 1,
         },
       }, principal >= 0
-        ? h("button", {
-            style: {
-              ...button, fontWeight: 600, fontSize: 15, padding: "4px 12px",
-              borderRadius: 14, background: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)",
-              color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
-            },
-            onClick: () => sendEvent(n.edit, `trailingItem:${principal}`),
-          }, trailing[principal] || "")
+        ? trailingItem(principal, {
+            fontWeight: 600, fontSize: 15, padding: "4px 12px",
+            borderRadius: 14, background: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)",
+            color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+          })
         : (p.title || "")),
       h("div", { style: { ...side, justifyContent: "flex-end" } },
-        trailing.map((title, i) => i === principal ? null : h("button", {
-          key: `t${i}`, style: button,
-          onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
-        }, title))));
+        trailing.map((title, i) => i === principal ? null : trailingItem(i))));
   }
 
   function tabBar(n) {
@@ -299,6 +331,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           leading: p.leading,
           trailingItems: p.trailingItems,
           principal: p.principal,
+          segments: p.segments,
+          segmentSelected: p.segmentSelected,
+          prominent: p.prominent,
         },
       })));
     }
@@ -395,39 +430,160 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         h("div", { key: "float", style: { position: "absolute", top: 8, left: 8, zIndex: 20 } },
           toggleButton({ background: dark ? "rgba(30,30,32,0.85)" : "rgba(247,247,247,0.9)", boxShadow: "0 1px 4px rgba(0,0,0,0.25)" })));
     }
-    // Group by section title, ungrouped tabs first, preserving order.
-    const rows = [];
-    let lastSection = "";
+    // `.tabViewCustomization`: root items (ungrouped tabs, sections) and
+    // the tabs inside a section drag-reorder; the new arrangement goes to
+    // the guest as "reorder:<raw>" (guest applies it and re-emits ordered
+    // entries) and, when the binding is an @AppStorage, persists in
+    // localStorage under the storage key so it survives reloads.
+    const custom = p.custom === "1";
+    const storageKey = custom ? (p.storageKey || "") : "";
+    const [dragging, setDragging] = R.useState(null);
+    const [over, setOver] = R.useState(null);
+    // Root items in the guest's (already arranged) order.
+    const roots = [];
     for (let i = 0; i < count; i++) {
       const section = p["section" + i] || "";
-      if (section !== lastSection && section) {
-        rows.push(h("div", {
-          key: `s${i}`,
-          style: {
-            padding: "14px 14px 4px", fontSize: 11, fontWeight: 600,
-            textTransform: "uppercase", letterSpacing: "0.4px",
-            color: dark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.45)",
-          },
-        }, section));
+      const sid = p["sid" + i] || "";
+      const key = sid ? "s:" + sid : (section ? "t:" + section : "tab:" + i);
+      const last = roots[roots.length - 1];
+      if (last && last.key === key && (sid || section)) {
+        last.tabs.push(i);
+      } else {
+        roots.push({
+          key, section, id: (sid || section) ? sid : (p["cid" + i] || ""),
+          isSection: !!(sid || section), tabs: [i],
+          pinned: (sid || section) ? p["sfixed" + i] === "1" : p["fixed" + i] === "1",
+        });
       }
-      lastSection = section;
+    }
+    const serialize = (rootIds, sectionOrders) => {
+      const parts = [];
+      if (rootIds.length) parts.push(":" + rootIds.join(","));
+      for (const id of Object.keys(sectionOrders).sort()) {
+        if (sectionOrders[id].length) parts.push(id + ":" + sectionOrders[id].join(","));
+      }
+      return parts.join(";");
+    };
+    const currentArrangement = () => {
+      const sectionOrders = {};
+      for (const r of roots) {
+        if (r.isSection && r.id) sectionOrders[r.id] = r.tabs.map((i) => p["cid" + i] || "").filter(Boolean);
+      }
+      return { rootIds: roots.map((r) => r.id).filter(Boolean), sectionOrders };
+    };
+    const commit = (raw) => {
+      if (storageKey) { try { localStorage.setItem(storageKey, raw); } catch (_) {} }
+      sendEvent(n.edit, "reorder:" + raw);
+    };
+    R.useEffect(() => {
+      if (!storageKey) return;
+      let stored = null;
+      try { stored = localStorage.getItem(storageKey); } catch (_) {}
+      if (stored != null && stored !== (p.arrangement || "")) {
+        // First mount: a persisted arrangement wins over the guest default.
+        if (!SidebarTabs.synced.has(storageKey)) {
+          SidebarTabs.synced.add(storageKey);
+          sendEvent(n.edit, "reorder:" + stored);
+          return;
+        }
+      }
+      SidebarTabs.synced.add(storageKey);
+      try { localStorage.setItem(storageKey, p.arrangement || ""); } catch (_) {}
+    }, [storageKey, p.arrangement]);
+    const moveWithin = (ids, fromId, toId) => {
+      const list = ids.filter((id) => id !== fromId);
+      const at = list.indexOf(toId);
+      const before = ids.indexOf(fromId) > ids.indexOf(toId);
+      list.splice(before ? at : at + 1, 0, fromId);
+      return list;
+    };
+    const dropOn = (target) => {
+      if (!dragging || dragging.kind !== target.kind || dragging.id === target.id) return;
+      if (dragging.kind === "tab" && dragging.container !== target.container) return;
+      const { rootIds, sectionOrders } = currentArrangement();
+      if (dragging.kind === "root") {
+        commit(serialize(moveWithin(rootIds, dragging.id, target.id), sectionOrders));
+      } else {
+        sectionOrders[dragging.container] = moveWithin(sectionOrders[dragging.container] || [], dragging.id, target.id);
+        commit(serialize(rootIds, sectionOrders));
+      }
+    };
+    const dragProps = (item) => {
+      if (!custom || !item.id || item.pinned) return {};
+      const token = item.kind + "/" + item.container + "/" + item.id;
+      return {
+        draggable: true,
+        onDragStart: (e) => {
+          try { e.dataTransfer.setData("text/plain", token); e.dataTransfer.effectAllowed = "move"; } catch (_) {}
+          setDragging(item);
+        },
+        onDragEnd: () => { setDragging(null); setOver(null); },
+        onDragOver: (e) => {
+          if (!dragging || dragging.kind !== item.kind || (item.kind === "tab" && dragging.container !== item.container)) return;
+          e.preventDefault();
+          if (over !== token) setOver(token);
+        },
+        onDragLeave: () => { if (over === token) setOver(null); },
+        onDrop: (e) => { e.preventDefault(); dropOn(item); setDragging(null); setOver(null); },
+      };
+    };
+    const overStyle = (item) => {
+      const token = item.kind + "/" + item.container + "/" + item.id;
+      return over === token && dragging && dragging.id !== item.id
+        ? { boxShadow: "inset 0 2px 0 #0a84ff" } : {};
+    };
+    const rows = [];
+    const tabRow = (i, item) => {
       const active = i === selected;
-      rows.push(h("button", {
+      const dp = dragProps(item);
+      return h("button", {
         key: i,
         onClick: () => sendEvent(n.edit, String(i)),
+        ...dp,
+        "data-tab": p["label" + i] || "",
         style: {
           display: "flex", alignItems: "center", gap: 9, width: "calc(100% - 12px)",
-          margin: "1px 6px", padding: "7px 9px", border: "none", cursor: "pointer",
+          margin: "1px 6px", padding: "7px 9px", border: "none",
+          cursor: dp.draggable ? "grab" : "pointer",
           borderRadius: 7, textAlign: "left", fontSize: 13.5,
           fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
           background: active ? (dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.08)") : "none",
           color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+          opacity: dragging && dragging.kind === item.kind && dragging.id === item.id ? 0.4 : 1,
+          ...overStyle(item),
         },
       },
         p["glyph" + i]
           ? h("span", { style: { fontSize: 15, width: 22, textAlign: "center", color: "#0a84ff" } }, p["glyph" + i])
           : null,
-        h("span", null, p["label" + i] || "")));
+        h("span", null, p["label" + i] || ""));
+    };
+    for (const root of roots) {
+      if (!root.isSection) {
+        rows.push(tabRow(root.tabs[0], { kind: "root", container: "", id: root.id, pinned: root.pinned }));
+        continue;
+      }
+      const item = { kind: "root", container: "", id: root.id, pinned: root.pinned };
+      const dp = dragProps(item);
+      rows.push(h("div", {
+        key: "s" + root.tabs[0],
+        ...dp,
+        "data-section": root.section,
+        style: {
+          padding: "14px 14px 4px", fontSize: 11, fontWeight: 600,
+          textTransform: "uppercase", letterSpacing: "0.4px",
+          cursor: dp.draggable ? "grab" : "default",
+          color: dark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.45)",
+          opacity: dragging && dragging.kind === "root" && dragging.id === root.id ? 0.4 : 1,
+          ...overStyle(item),
+        },
+      }, root.section));
+      for (const i of root.tabs) {
+        rows.push(tabRow(i, {
+          kind: "tab", container: root.id, id: p["cid" + i] || "",
+          pinned: p["fixed" + i] === "1",
+        }));
+      }
     }
     const sidebarBg = dark ? "rgba(30,30,32,0.94)" : "rgba(247,247,247,0.94)";
     return h("div", {
@@ -449,6 +605,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       }),
       content);
   }
+
+  SidebarTabs.synced = new Set();
 
   function NavSplit({ dark, kids, preferredPane, edit, sidebarWidth, contentWidth }) {
     // `preferredCompactColumn`: the compact presentation starts on the
@@ -605,6 +763,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         });
       case "picker":
       case "menu": {
+        if (n.view === "picker" && p.style === "segmented") {
+          return h(Segmented, {
+            key, options: n.options || [], selected: Number(n.v) || 0,
+            dark: document.documentElement.dataset.theme === "dark"
+              || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches),
+            onSelect: (i) => sendEvent(n.edit, String(i)),
+          });
+        }
         props.value = n.view === "picker" ? Number(n.v) || 0 : 0;
         props.onChange = (e) => sendEvent(n.edit, String(e.target.selectedIndex));
         props.style = { ...props.style, fontSize: 15, padding: "4px 8px" };

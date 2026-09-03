@@ -31,7 +31,7 @@ V/a0p/mRfwhQVDX4QMFNnPZ6TipYo3EtJBjQxCA/QKs=
 Clients verify this before adopting a bundle from a peer, so a modified copy
 served from anywhere — including here — is refused.
 
-Current release: **v64**
+Current release: **v65**
 
 ## Running your own bootstrapper
 
