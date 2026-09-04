@@ -16,6 +16,9 @@
           box-shadow: 0 8px 30px rgba(0,0,0,.14); }
     .qr img { display: block; width: min(62vw, 300px); height: auto; image-rendering: pixelated; }
     .qr:empty { display: none; }
+    /* Hidden: the UI now places the code in its own tree (qrImage); these
+       stay only as the source saveQR reads. */
+    .qr { display: none; }
   </style>
 </head>
 <body>
@@ -391,6 +394,17 @@
         link.href = img.src;
         link.download = "p2prc-invite.png";
         link.click();
+      },
+
+      qrImage(requestID, text) {
+        try {
+          const qr = qrcode(0, "L");
+          qr.addData(text);
+          qr.make();
+          done(requestID, true, qr.createDataURL(4, 8));
+        } catch (e) {
+          done(requestID, false, "");
+        }
       },
 
       drawQR(elementID, text) {
