@@ -8,6 +8,11 @@
   <meta name="p2prc-seeds" content="https://api.p2prc.org,https://p2prc-signaling-miitylogva-uc.a.run.app">
   <title>P2PRC</title>
   <style>
+    /* The system font everywhere, form controls included: browsers default
+       a textarea to a serif/monospace face unless told otherwise, and the
+       renderer's inputs inherit from here. */
+    html, body { font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    input, textarea, button, [contenteditable] { font-family: inherit; font-size: inherit; }
     html, body { margin: 0; height: 100%; background: #fff; }
     #canvas { width: 100%; height: 100%; display: block; touch-action: none; }
     #error { font: 14px monospace; color: #b00; padding: 16px; white-space: pre-wrap; }
