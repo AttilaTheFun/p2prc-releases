@@ -198,19 +198,23 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       const el = areaRef.current;
       if (!el) return;
       el.style.height = "auto";
-      const max = Number(p.maxLines || 5) * lineHeight + 14;
+      const max = Number(p.maxLines || 5) * lineHeight + (p.fieldStyle === "plain" ? 0 : 14);
       el.style.height = `${Math.min(el.scrollHeight, max)}px`;
       el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
     };
     R.useLayoutEffect(() => { if (multiline) fit(); });
+    // `.textFieldStyle(.plain)`: the text alone — no bezel, no background —
+    // for a field that sits inside its own bubble.
+    const plain = p.fieldStyle === "plain";
     const style = {
       ...(n.baseStyle || {}),
       fontSize: n.size || 15,
-      padding: "7px 10px",
-      border: "1px solid rgba(120,120,128,0.35)",
-      borderRadius: 8,
+      padding: plain ? 0 : "7px 10px",
+      border: plain ? "none" : "1px solid rgba(120,120,128,0.35)",
+      borderRadius: plain ? 0 : 8,
       outline: "none",
-      background: "rgba(120,120,128,0.08)",
+      background: plain ? "transparent" : "rgba(120,120,128,0.08)",
+      color: "inherit",
       minWidth: 0,
       alignSelf: "stretch",
     };
