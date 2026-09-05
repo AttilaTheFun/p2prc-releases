@@ -222,6 +222,18 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         pending.current.push(e.target.value);
         if (n.edit) sendEvent(n.edit, e.target.value);
       },
+      // `.onSubmit`: Enter submits (no newline); Shift/Alt+Enter inserts a
+      // newline in a multi-line field (the Messages composer shape).
+      onKeyDown: (e) => {
+        if (e.key !== "Enter" || e.isComposing) return;
+        if (multiline && (e.shiftKey || e.altKey)) return;
+        if (p.submit) {
+          e.preventDefault();
+          sendEvent(p.submit, "");
+        } else if (multiline && !e.shiftKey && !e.altKey) {
+          // No submit handler: Enter keeps its newline.
+        }
+      },
     };
     if (multiline) {
       return h("textarea", {
@@ -1329,10 +1341,18 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         if ((n.ch || []).some((c) => c.params && c.params.layer)) {
           s.position = "relative";
           s.zIndex = 0;
-          const wrap = (kid, i, z) => h("div", {
-            key: `layer${i}`,
-            style: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: z, overflow: "hidden" },
-          }, kid);
+          const wrap = (kid, i, z) => {
+            // `.overlay(alignment:)` / `.background(alignment:)`.
+            const [ah, av] = ((((n.ch || [])[i] || {}).params || {}).layerAlign || "center,center").split(",");
+            return h("div", {
+              key: `layer${i}`,
+              style: {
+                position: "absolute", inset: 0, display: "flex", zIndex: z, overflow: "hidden",
+                alignItems: av === "start" ? "flex-start" : av === "end" ? "flex-end" : "center",
+                justifyContent: ah === "start" ? "flex-start" : ah === "end" ? "flex-end" : "center",
+              },
+            }, kid);
+          };
           kids = kids.map((kid, i) => {
             const layer = layerOf(i);
             return layer === "background" ? wrap(kid, i, -1) : layer === "overlay" ? wrap(kid, i, 1) : kid;
