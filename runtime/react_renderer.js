@@ -84,10 +84,68 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       s.boxShadow = `${n.shadow.x}px ${n.shadow.y}px ${n.shadow.radius * 2}px ${rgba(n.shadow.color)}`;
     }
     if (n.tap) s.cursor = "pointer";
+    // Visual transforms (.offset / .scaleEffect): per-frame values from the
+    // guest's animator, applied as a CSS transform about the center.
+    if (n.offsetX != null || n.offsetY != null || n.scale != null) {
+      const parts = [];
+      if (n.offsetX != null || n.offsetY != null) parts.push(`translate(${n.offsetX || 0}px, ${n.offsetY || 0}px)`);
+      if (n.scale != null) parts.push(`scale(${n.scale})`);
+      s.transform = parts.join(" ");
+    }
+    if (n.drag) s.touchAction = "none";
     return s;
   }
 
+  // `.accessibilityLabel/Hint/Value/Identifier/Hidden` → ARIA / test ids.
+  function accessibility(n, props) {
+    const p = n.params;
+    if (!p) return props;
+    if (p.a11yLabel !== undefined) props["aria-label"] = p.a11yLabel;
+    if (p.a11yHint !== undefined) props["aria-description"] = p.a11yHint;
+    if (p.a11yValue !== undefined) props["aria-valuetext"] = p.a11yValue;
+    if (p.a11yId !== undefined) props["data-testid"] = p.a11yId;
+    if (p.a11yHidden === "1") props["aria-hidden"] = "true";
+    return props;
+  }
+
   function interactive(n, props) {
+    accessibility(n, props);
+    const params = n.params || {};
+    if (params.tint) {
+      // `.tint`: buttons/links in the subtree read the accent from this var.
+      props.style = { ...(props.style || {}), "--uui-tint": params.tint, accentColor: params.tint };
+    }
+    if (params.clip === "1") props.style = { ...(props.style || {}), overflow: "hidden" };
+    if (params.posX !== undefined && params.posY !== undefined) {
+      // `.position`: the child's center at (x, y) in the parent (the parent
+      // is positioned; see the container rule in render()).
+      props.style = {
+        ...(props.style || {}), position: "absolute", left: Number(params.posX), top: Number(params.posY),
+        transform: ((props.style || {}).transform ? (props.style || {}).transform + " " : "") + "translate(-50%, -50%)",
+        width: "auto", height: "auto", flex: "none",
+      };
+    }
+    if (n.drag) {
+      // A guest DragGesture: pointer capture, translation reported as
+      // "changed:x,y" while moving and "ended:x,y" on release.
+      props.onPointerDown = (e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        e.currentTarget.__uuiDragStart = { x: e.clientX, y: e.clientY };
+      };
+      props.onPointerMove = (e) => {
+        const start = e.currentTarget.__uuiDragStart;
+        if (!start) return;
+        sendEvent(n.drag, `changed:${e.clientX - start.x},${e.clientY - start.y}`);
+      };
+      const end = (e) => {
+        const start = e.currentTarget.__uuiDragStart;
+        if (!start) return;
+        e.currentTarget.__uuiDragStart = null;
+        sendEvent(n.drag, `ended:${e.clientX - start.x},${e.clientY - start.y}`);
+      };
+      props.onPointerUp = end;
+      props.onPointerCancel = end;
+    }
     if (n.tap) {
       props["data-tap"] = n.tap; // exposed for headless smoke tests
       props.onClick = (e) => {
@@ -210,15 +268,20 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     const dark = p.dark === "1";
     const bar = {
       display: "flex", alignItems: "center", width: "100%", height: 44, flex: "none",
+      boxSizing: "border-box", padding: "0 8px",
       background: dark ? "rgba(28,28,30,0.94)" : "rgba(249,249,249,0.94)",
       backdropFilter: "blur(8px)",
       borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
       color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
       fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
     };
+    // Bar items read as tappable: a tinted pill (fill + radius), like a
+    // bordered button, rather than a bare glyph.
     const button = {
-      border: "none", background: "none", color: "#0a84ff", fontSize: 16,
-      cursor: "pointer", padding: "0 10px", flex: "0 0 auto",
+      border: "none", background: "rgba(10,132,255,0.12)", color: "var(--uui-tint, #0a84ff)", fontSize: 15,
+      fontWeight: 500, cursor: "pointer", padding: "5px 11px", borderRadius: 9, flex: "0 0 auto",
+      minWidth: 34, lineHeight: "20px", margin: "0 2px",
+      fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
     };
     // Toolbar items (`ToolbarItem(placement:)`): newline-joined title lists.
     const split = (key) => (p[key] ? p[key].split("\n") : []);
@@ -246,7 +309,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     return h("div", { style: bar },
       h("div", { style: side },
         p.back === "1"
-          ? h("button", { key: "back", style: button, onClick: () => sendEvent(n.edit, "back") }, "‹ Back")
+          ? h("button", { key: "back", style: button, onClick: () => (n.onBack ? n.onBack() : sendEvent(n.edit, "back")) }, "‹ Back")
           : null,
         leading.map((title, i) => h("button", {
           key: `l${i}`, style: button,
@@ -264,7 +327,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           minWidth: 0,
           opacity: p.large === "1" ? Number(p.inlineAlpha || 1) : 1,
         },
-      }, principal < 0 && p.subtitle
+      }, n.pill
+        ? h(Segmented, {
+            options: n.pill.options, selected: n.pill.selected, dark, compact: true,
+            onSelect: n.pill.onSelect,
+          })
+        : principal < 0 && p.subtitle
         ? h("div", { style: { display: "flex", flexDirection: "column", lineHeight: 1.15 } },
             h("span", null, p.title || ""),
             h("span", { style: { fontSize: 12, fontWeight: 400, opacity: 0.6 } }, p.subtitle))
@@ -293,7 +361,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           flex: 1, border: "none", background: "none", cursor: "pointer",
           display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
           padding: "7px 0 5px", fontSize: 11, opacity: active ? 1 : 0.45,
-          color: active ? "#0a84ff" : "rgba(0,0,0,0.55)",
+          color: active ? "var(--uui-tint, #0a84ff)" : "rgba(0,0,0,0.55)",
         },
       },
         p["glyph" + i]
@@ -316,22 +384,40 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   // content, a large-title heading + search row unless the title mode is
   // inline, then the content column. Events ride the node's host-event
   // channel: "back", "leading:<i>", "trailingItem:<i>", "search:<text>".
+  // `.tabBarOnly`: the tabs pill is handed to the selected tab's own
+  // navigation bar (one bar row: leading cluster, centered pill, trailing
+  // cluster — the macOS window-toolbar shape) when that tab's root is a
+  // NavigationStack; otherwise the TabView draws its own strip.
+  let pendingTabPill = null;
+
   function navStack(n, key, kids) {
     const p = n.params || {};
+    let pill = null;
+    // The tab root is wrapped in a content box: navstack sits 1–3 levels
+    // below the tabs node.
+    if (pendingTabPill && !pendingTabPill.consumed && renderDepth - pendingTabPill.depth <= 2) {
+      pendingTabPill.consumed = true;
+      pill = pendingTabPill;
+    }
     const dark = p.dark === "1";
     const depth = Number(p.depth || 0);
     const inline = p.displayMode === "inline";
     const leading = p.leading ? p.leading.split("\n") : [];
     const trailing = p.trailingItems ? p.trailingItems.split("\n") : [];
-    const showBar = depth > 0 || leading.length > 0 || trailing.length > 0 || inline;
+    // At its root inside a compact split view, this bar carries the split's
+    // Back (to the previous column) — the phone shape of a split detail.
+    const splitBack = depth === 0 && currentSplitBack ? currentSplitBack.back : null;
+    const showBar = depth > 0 || leading.length > 0 || trailing.length > 0 || inline || !!pill || !!splitBack;
     const rows = [];
     if (showBar) {
       rows.push(h(R.Fragment, { key: "bar" }, navBar({
         edit: n.edit,
+        pill,
+        onBack: splitBack,
         params: {
           title: inline || !p.title ? (p.title || "") : "",
           subtitle: inline ? (p.subtitle || "") : "",
-          back: depth > 0 ? "1" : "0",
+          back: depth > 0 || splitBack ? "1" : "0",
           dark: p.dark,
           leading: p.leading,
           trailingItems: p.trailingItems,
@@ -384,6 +470,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, kids));
     return h("div", {
       key,
+      "data-navstack": "1",
       style: {
         display: "flex", flexDirection: "column", flex: 1,
         minHeight: 0, minWidth: 0, alignSelf: "stretch", width: "100%",
@@ -570,7 +657,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         },
       },
         p["glyph" + i]
-          ? h("span", { style: { fontSize: 15, width: 22, textAlign: "center", color: "#0a84ff" } }, p["glyph" + i])
+          ? h("span", { style: { fontSize: 15, width: 22, textAlign: "center", color: "var(--uui-tint, #0a84ff)" } }, p["glyph" + i])
           : null,
         h("span", null, p["label" + i] || ""));
     };
@@ -624,7 +711,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
 
   SidebarTabs.synced = new Set();
 
-  function NavSplit({ dark, kids, preferredPane, edit, sidebarWidth, contentWidth }) {
+  // The compact split's "go back" for the visible pane's own navigation bar
+  // (set while the pane renders; navStack shows it as the bar's Back when the
+  // pane's stack is at its root).
+  let currentSplitBack = null;
+
+  function NavSplit({ dark, kids, nodes, preferredPane, compactTick, edit, sidebarWidth, contentWidth }) {
     // `preferredCompactColumn`: the compact presentation starts on the
     // guest's preferred column and reports pane changes back so the app's
     // binding tracks ("compact:<column>" on the navsplit's event channel).
@@ -638,6 +730,15 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       setPaneState(next);
       if (edit) sendEvent(edit, "compact:" + paneNames[next]);
     };
+    // The guest asks to advance when a column's List selection changes (a
+    // row tap or a programmatic selection) — SwiftUI's phone behavior.
+    const lastTick = R.useRef(compactTick);
+    R.useEffect(() => {
+      if (compactTick !== lastTick.current) {
+        lastTick.current = compactTick;
+        if (preferredPane != null) setPaneState(Math.min(preferredPane, lastPane));
+      }
+    }, [compactTick]);
     const compact = window.innerWidth < 700;
     const divider = (k) => h("div", {
       key: k,
@@ -672,30 +773,63 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         divider("d1"),
         column("detail", null, kids[2]));
     }
-    // Compact: pane 0 = sidebar, 1 = content, 2 = detail. Advance on click
-    // (bubble phase, so the row's own tap fired first), retreat via the
-    // back row.
+    // Compact: pane 0 = sidebar, 1 = content, 2 = detail. The guest advances
+    // the pane on selection changes; Back retreats — drawn in the pane's
+    // own navigation bar when it has one (a `SplitBackBar` row otherwise).
+    return h(CompactPane, { key: `pane${pane}`, pane, node: nodes[pane], background: pane === 0 ? sidebarBg : undefined,
+      onBack: pane > 0 ? () => setPane(pane - 1) : null, dark });
+  }
+
+  function CompactPane({ pane, node, background, onBack, dark }) {
+    // Render the pane's node HERE (not the eagerly rendered kid) so its
+    // navstack sees the split's back handler while it builds its bar.
+    const previous = currentSplitBack;
+    currentSplitBack = onBack ? { back: onBack } : null;
+    let kid;
+    try {
+      kid = render(node, `pane${pane}:${node.k}${node.view || ""}`, "v");
+    } finally {
+      currentSplitBack = previous;
+    }
+    const rendered = h("div", {
+      style: {
+        flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0,
+        alignSelf: "stretch", width: "100%", background,
+      },
+    }, kid);
+    // React renders `kid` lazily, so whether a navstack claimed the back
+    // handler is only known after this render; the fallback row shows when
+    // the pane's tree has no navstack root (see navStack).
     const rows = [];
-    if (pane > 0) {
+    if (onBack && !paneHasNavStack(kid)) {
       rows.push(h("div", {
         key: "back",
-        onClick: () => setPane(pane - 1),
+        onClick: onBack,
         style: {
-          padding: "10px 14px", color: "#0a84ff", cursor: "pointer",
+          padding: "10px 14px", color: "var(--uui-tint, #0a84ff)", cursor: "pointer",
           fontSize: 16, flex: "none",
           fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
         },
       }, "‹ Back"));
     }
-    rows.push(column(
-      `pane${pane}`, null, kids[pane],
-      pane === 0 ? sidebarBg : undefined,
-      // Capture phase: row handlers stopPropagation, so the bubble never
-      // arrives — capture runs first and the row's own tap still fires.
-      pane < lastPane ? { onClickCapture: () => setPane(pane + 1) } : undefined));
+    rows.push(h(R.Fragment, { key: "pane" }, rendered));
     return h("div", {
       style: { display: "flex", flexDirection: "column", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
     }, rows);
+  }
+
+  // Whether a rendered pane's element tree starts (within a few wrapper
+  // levels) with a navstack — its bar can host the split's Back.
+  function paneHasNavStack(element) {
+    let node = element;
+    for (let depth = 0; node && depth < 6; depth++) {
+      const props = node.props || {};
+      if (props["data-navstack"]) return true;
+      const children = props.children;
+      if (Array.isArray(children)) node = children.find((c) => c && c.props);
+      else node = children && children.props ? children : null;
+    }
+    return false;
   }
 
   function navSplit(n, key, kids) {
@@ -704,8 +838,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       ? { sidebar: 0, content: 0, detail: 1 }[p.compact]
       : { sidebar: 0, content: 1, detail: 2 }[p.compact];
     return h(NavSplit, {
-      key, dark: p.dark === "1", kids,
-      preferredPane: preferred, edit: n.edit,
+      key, dark: p.dark === "1", kids, nodes: n.ch || [],
+      preferredPane: preferred, compactTick: p.compactTick, edit: n.edit,
       // `.navigationSplitViewColumnWidth` hints (sidebarWidth/contentWidth).
       sidebarWidth: Number(p.sidebarWidth) || 240,
       contentWidth: Number(p.contentWidth) || 340,
@@ -928,17 +1062,35 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, kids));
   }
 
+  let renderDepth = 0;
+
   function render(n, key, parentAxis) {
+    renderDepth += 1;
+    try {
+      return renderNode(n, key, parentAxis);
+    } finally {
+      renderDepth -= 1;
+    }
+  }
+
+  function renderNode(n, key, parentAxis) {
     if (n.k === "hostView" && (n.view === "navbar" || n.view === "tabbar")) {
       // Bars ignore box decorations; they are chrome rows.
       return h(R.Fragment, { key }, hostView(n, {}, []));
     }
+    if (key === "root") {
+      // The root view keeps its own size, centered in the canvas — the way
+      // SwiftUI (and the native renderers) place a content-sized root — so
+      // `.background` on a root VStack wraps the content instead of
+      // painting the whole screen. Greedy roots (navigation, lists,
+      // spacers) still fill the canvas via the ZStack-layer rules.
+      return h("div", {
+        key,
+        style: { width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0, minWidth: 0 },
+      }, render(n, "root-node", "z"));
+    }
     const props = interactive(n, { key, style: baseStyle(n) });
     const s = props.style;
-    if (key === "root") {
-      s.width = "100%";
-      s.height = "100%";
-    }
     // Greedy nodes fill their parent: grow along the parent's main axis,
     // stretch across it (SwiftUI greediness, computed by the serializer).
     if ((parentAxis === "v" && n.growH) || (parentAxis === "h" && n.growW)) {
@@ -986,8 +1138,21 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // different kind must REMOUNT, not be incrementally patched — React's
     // style diffing across such transitions has left stale inline styles
     // (e.g. a dropped flex-grow centering a re-visited pane).
+    let tabPill = null;
+    if (n.k === "hostView" && n.view === "tabs" && (n.params || {}).style === "tabBarOnly") {
+      const tp = n.params;
+      const labels = [];
+      for (let i = 0; i < Number(tp.count || 0); i++) labels.push(tp["label" + i] || "");
+      tabPill = {
+        options: labels, selected: Number(tp.selected || 0), consumed: false,
+        depth: renderDepth + 1, // the selected tab's root, rendered next
+        onSelect: (i) => sendEvent(n.edit, String(i)),
+      };
+      pendingTabPill = tabPill;
+    }
     let kids = (n.ch || []).map((c, i) =>
       render(c, `${i}:${c.k}${c.axis || ""}${c.view || ""}`, childAxis));
+    if (tabPill) pendingTabPill = null;
 
     switch (n.k) {
       case "stack": {
@@ -1114,6 +1279,38 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           if ((n.params || {}).style === "sidebarAdaptable") {
             return h(SidebarTabs, { key, n, kids });
           }
+          if ((n.params || {}).style === "tabBarOnly" && tabPill && tabPill.consumed) {
+            // The selected tab's navigation bar took the pill: content only.
+            return h("div", {
+              key,
+              style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch", width: "100%" },
+            }, kids);
+          }
+          if ((n.params || {}).style === "tabBarOnly") {
+            // iPad / macOS-15 `.tabBarOnly` with a non-navigation tab root:
+            // a centered segmented pill in a slim strip at the TOP.
+            const p = n.params || {};
+            const dark = p.dark === "1";
+            const count = Number(p.count || 0);
+            const labels = [];
+            for (let i = 0; i < count; i++) labels.push(p["label" + i] || "");
+            return h("div", {
+              key,
+              style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch", width: "100%" },
+            },
+              h("div", {
+                key: "topbar",
+                style: {
+                  display: "flex", justifyContent: "center", alignItems: "center", flex: "none",
+                  padding: "6px 12px", background: dark ? "rgba(28,28,30,0.94)" : "rgba(249,249,249,0.94)",
+                  borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
+                },
+              }, h(Segmented, {
+                options: labels, selected: Number(p.selected || 0), dark, compact: true,
+                onSelect: (i) => sendEvent(n.edit, String(i)),
+              })),
+              h("div", { key: "content", style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } }, kids));
+          }
           // Semantic tabs → the selected tab's content over the bottom bar.
           return h("div", {
             key,
@@ -1126,8 +1323,25 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       case "presentation":
         return presentation(n, kids);
       default: {
+        // `.background(view)` / `.overlay(view)` layers: absolutely placed
+        // over the box's area, behind (z -1) or over (z 1) the content.
+        const layerOf = (i) => (((n.ch || [])[i] || {}).params || {}).layer;
+        if ((n.ch || []).some((c) => c.params && c.params.layer)) {
+          s.position = "relative";
+          s.zIndex = 0;
+          const wrap = (kid, i, z) => h("div", {
+            key: `layer${i}`,
+            style: { position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: z, overflow: "hidden" },
+          }, kid);
+          kids = kids.map((kid, i) => {
+            const layer = layerOf(i);
+            return layer === "background" ? wrap(kid, i, -1) : layer === "overlay" ? wrap(kid, i, 1) : kid;
+          });
+        }
         if (kids.length > 0) {
           s.display = "flex";
+          // A positioning context for `.position`ed children.
+          if (!s.position) s.position = "relative";
           s.flexDirection = "column";
           s.alignItems = alignCSS[n.alignH] || "center";
           s.justifyContent = alignCSS[n.alignV] || "center";

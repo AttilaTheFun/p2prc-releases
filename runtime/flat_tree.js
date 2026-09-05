@@ -110,6 +110,10 @@ function makeReader(bytes) {
     if ((pos = field(table, 32))) n.expandW = u8(pos) !== 0;
     if ((pos = field(table, 33))) n.expandH = u8(pos) !== 0;
     if ((pos = field(table, 34))) n.radius = f64(pos);
+    if ((pos = field(table, 45))) n.offsetX = f64(pos);
+    if ((pos = field(table, 46))) n.offsetY = f64(pos);
+    if ((pos = field(table, 47))) n.scale = f64(pos);
+    if ((pos = field(table, 48))) n.drag = string(pos);
     if ((pos = field(table, 35))) n.opacity = f64(pos);
     if ((pos = field(table, 36))) n.bg = color(pos);
     if ((pos = field(table, 37))) n.gradient = string(pos);
