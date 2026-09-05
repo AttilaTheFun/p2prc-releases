@@ -1237,6 +1237,16 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         s.minHeight = 0;
         s.minWidth = 0;
         s[n.axis === "h" ? "overflowX" : "overflowY"] = "auto";
+        // `.scrollDismissesKeyboard(.immediately / .interactively)`: a scroll
+        // (or a touch drag) blurs the focused field, closing the soft keyboard.
+        if ((n.params || {}).dismissKeyboard && (n.params || {}).dismissKeyboard !== "never") {
+          const dismiss = () => {
+            const active = document.activeElement;
+            if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) active.blur();
+          };
+          props.onScroll = dismiss;
+          props.onTouchMove = dismiss;
+        }
         // `.defaultScrollAnchor(.bottom)` (a chat log): start at the bottom
         // and stay pinned there as content grows, until the user scrolls up.
         if ((n.params || {}).anchor === "bottom") {
