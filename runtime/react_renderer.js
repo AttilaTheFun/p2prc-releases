@@ -732,7 +732,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   // pane's stack is at its root).
   let currentSplitBack = null;
 
-  function NavSplit({ dark, kids, nodes, preferredPane, compactTick, edit, sidebarWidth, contentWidth }) {
+  function NavSplit({ dark, kids, nodes, preferredPane, compactTick, edit, sidebarWidth, contentWidth, visibility }) {
     // `preferredCompactColumn`: the compact presentation starts on the
     // guest's preferred column and reports pane changes back so the app's
     // binding tracks ("compact:<column>" on the navsplit's event channel).
@@ -772,21 +772,24 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, kid);
     const sidebarBg = dark ? "rgba(30,30,32,0.94)" : "rgba(247,247,247,0.94)";
     if (!compact) {
+      // `columnVisibility` at regular width: `.detailOnly` shows the detail
+      // alone, `.doubleColumn` drops a three-column split's sidebar; `.all`
+      // / automatic show every column (there is no user collapse control on
+      // this host, so `.all` pins the sidebar by construction).
+      const detailOnly = visibility === "detailOnly";
+      const hideSidebar = detailOnly || (visibility === "doubleColumn" && paneCount === 3);
+      const row = { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" };
       if (paneCount === 2) {
-        return h("div", {
-          style: { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
-        },
-          column("sidebar", sidebarWidth, kids[0], sidebarBg),
-          divider("d0"),
+        return h("div", { style: row },
+          hideSidebar ? null : column("sidebar", sidebarWidth, kids[0], sidebarBg),
+          hideSidebar ? null : divider("d0"),
           column("detail", null, kids[1]));
       }
-      return h("div", {
-        style: { display: "flex", flexDirection: "row", flex: 1, width: "100%", minHeight: 0, alignSelf: "stretch" },
-      },
-        column("sidebar", sidebarWidth, kids[0], sidebarBg),
-        divider("d0"),
-        column("content", contentWidth, kids[1]),
-        divider("d1"),
+      return h("div", { style: row },
+        hideSidebar ? null : column("sidebar", sidebarWidth, kids[0], sidebarBg),
+        hideSidebar ? null : divider("d0"),
+        detailOnly ? null : column("content", contentWidth, kids[1]),
+        detailOnly ? null : divider("d1"),
         column("detail", null, kids[2]));
     }
     // Compact: pane 0 = sidebar, 1 = content, 2 = detail. The guest advances
@@ -855,7 +858,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       : { sidebar: 0, content: 1, detail: 2 }[p.compact];
     return h(NavSplit, {
       key, dark: p.dark === "1", kids, nodes: n.ch || [],
-      preferredPane: preferred, compactTick: p.compactTick, edit: n.edit,
+      preferredPane: preferred, compactTick: p.compactTick, edit: n.edit, visibility: p.visibility,
       // `.navigationSplitViewColumnWidth` hints (sidebarWidth/contentWidth).
       sidebarWidth: Number(p.sidebarWidth) || 240,
       contentWidth: Number(p.contentWidth) || 340,
