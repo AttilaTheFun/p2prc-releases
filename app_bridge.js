@@ -242,25 +242,13 @@ export class SwiftP2PRCHost {
         if (failure !== null)
             throw new SwiftError(failure);
     }
-    publishAnswer(blob) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.string.encode(w, blob);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 10, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
     drawQR(elementID, text) {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
         Types.string.encode(w, elementID);
         Types.string.encode(w, text);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 11, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 10, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -273,7 +261,7 @@ export class SwiftP2PRCHost {
         Types.int32.encode(w, requestID);
         Types.string.encode(w, text);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 12, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 11, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -285,7 +273,7 @@ export class SwiftP2PRCHost {
         const w = new BlobWriter();
         Types.string.encode(w, text);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 13, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 12, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -297,7 +285,7 @@ export class SwiftP2PRCHost {
         const w = new BlobWriter();
         Types.string.encode(w, elementID);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 14, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 13, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -309,7 +297,7 @@ export class SwiftP2PRCHost {
         const w = new BlobWriter();
         Types.int32.encode(w, requestID);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 15, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 14, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -321,7 +309,7 @@ export class SwiftP2PRCHost {
         const w = new BlobWriter();
         Types.int32.encode(w, requestID);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 16, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 15, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -334,7 +322,33 @@ export class SwiftP2PRCHost {
         Types.int32.encode(w, requestID);
         Types.string.encode(w, url);
         const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 16, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    httpPost(requestID, url, body) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        Types.string.encode(w, url);
+        Types.string.encode(w, body);
+        const staged = stageBytes(this.runtime, w.data());
         const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 17, staged.ptr, staged.len);
+        staged.drop();
+        const result = takeBytes(this.runtime, box);
+        const failure = errorMessageOf(result);
+        if (failure !== null)
+            throw new SwiftError(failure);
+    }
+    seeds(requestID) {
+        const handle = this.borrowHandle();
+        const w = new BlobWriter();
+        Types.int32.encode(w, requestID);
+        const staged = stageBytes(this.runtime, w.data());
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 18, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -347,45 +361,7 @@ export class SwiftP2PRCHost {
         Types.int32.encode(w, requestID);
         Types.int32.encode(w, ms);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 18, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-    stunLookup(requestID, server) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.int32.encode(w, requestID);
-        Types.string.encode(w, server);
-        const staged = stageBytes(this.runtime, w.data());
         const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 19, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-    startServer(requestID, directory) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.int32.encode(w, requestID);
-        Types.string.encode(w, directory);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 20, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-    publishDirectory(directory) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.string.encode(w, directory);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 21, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -397,31 +373,7 @@ export class SwiftP2PRCHost {
         const w = new BlobWriter();
         Types.string.encode(w, json);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 22, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-    localTURN(requestID) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.int32.encode(w, requestID);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 23, staged.ptr, staged.len);
-        staged.drop();
-        const result = takeBytes(this.runtime, box);
-        const failure = errorMessageOf(result);
-        if (failure !== null)
-            throw new SwiftError(failure);
-    }
-    relaySpend(requestID) {
-        const handle = this.borrowHandle();
-        const w = new BlobWriter();
-        Types.int32.encode(w, requestID);
-        const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 24, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 20, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -434,7 +386,7 @@ export class SwiftP2PRCHost {
         Types.int32.encode(w, requestID);
         Types.string.encode(w, peer);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 25, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 21, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -449,7 +401,7 @@ export class SwiftP2PRCHost {
         Types.string.encode(w, sdp);
         Types.bool.encode(w, isOffer);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 26, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 22, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -461,7 +413,7 @@ export class SwiftP2PRCHost {
         const w = new BlobWriter();
         Types.string.encode(w, peer);
         const staged = stageBytes(this.runtime, w.data());
-        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 27, staged.ptr, staged.len);
+        const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 23, staged.ptr, staged.len);
         staged.drop();
         const result = takeBytes(this.runtime, box);
         const failure = errorMessageOf(result);
@@ -536,92 +488,72 @@ export function makeDispatcher_P2PRCHost(impl, runtime) {
             }
             case 10: {
                 const a0 = Types.string.decode(r);
-                impl.publishAnswer(a0);
-                return new Uint8Array(0);
-            }
-            case 11: {
-                const a0 = Types.string.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.drawQR(a0, a1);
                 return new Uint8Array(0);
             }
-            case 12: {
+            case 11: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.qrImage(a0, a1);
                 return new Uint8Array(0);
             }
-            case 13: {
+            case 12: {
                 const a0 = Types.string.decode(r);
                 impl.share(a0);
                 return new Uint8Array(0);
             }
-            case 14: {
+            case 13: {
                 const a0 = Types.string.decode(r);
                 impl.saveQR(a0);
                 return new Uint8Array(0);
             }
-            case 15: {
+            case 14: {
                 const a0 = Types.int32.decode(r);
                 impl.scanQR(a0);
                 return new Uint8Array(0);
             }
-            case 16: {
+            case 15: {
                 const a0 = Types.int32.decode(r);
                 impl.capabilities(a0);
                 return new Uint8Array(0);
             }
-            case 17: {
+            case 16: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.httpGet(a0, a1);
                 return new Uint8Array(0);
             }
+            case 17: {
+                const a0 = Types.int32.decode(r);
+                const a1 = Types.string.decode(r);
+                const a2 = Types.string.decode(r);
+                impl.httpPost(a0, a1, a2);
+                return new Uint8Array(0);
+            }
             case 18: {
+                const a0 = Types.int32.decode(r);
+                impl.seeds(a0);
+                return new Uint8Array(0);
+            }
+            case 19: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.int32.decode(r);
                 impl.delay(a0, a1);
                 return new Uint8Array(0);
             }
-            case 19: {
-                const a0 = Types.int32.decode(r);
-                const a1 = Types.string.decode(r);
-                impl.stunLookup(a0, a1);
-                return new Uint8Array(0);
-            }
             case 20: {
-                const a0 = Types.int32.decode(r);
-                const a1 = Types.string.decode(r);
-                impl.startServer(a0, a1);
-                return new Uint8Array(0);
-            }
-            case 21: {
-                const a0 = Types.string.decode(r);
-                impl.publishDirectory(a0);
-                return new Uint8Array(0);
-            }
-            case 22: {
                 const a0 = Types.string.decode(r);
                 impl.setIceServers(a0);
                 return new Uint8Array(0);
             }
-            case 23: {
-                const a0 = Types.int32.decode(r);
-                impl.localTURN(a0);
-                return new Uint8Array(0);
-            }
-            case 24: {
-                const a0 = Types.int32.decode(r);
-                impl.relaySpend(a0);
-                return new Uint8Array(0);
-            }
-            case 25: {
+            case 21: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 impl.callStart(a0, a1);
                 return new Uint8Array(0);
             }
-            case 26: {
+            case 22: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
                 const a2 = Types.string.decode(r);
@@ -629,7 +561,7 @@ export function makeDispatcher_P2PRCHost(impl, runtime) {
                 impl.callApplyRemote(a0, a1, a2, a3);
                 return new Uint8Array(0);
             }
-            case 27: {
+            case 23: {
                 const a0 = Types.string.decode(r);
                 impl.callEnd(a0);
                 return new Uint8Array(0);

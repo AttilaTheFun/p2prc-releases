@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Seed signaling servers (docs/architecture.md §4): configuration the
+       client health-checks like any other server, never trusted outright. -->
+  <meta name="p2prc-seeds" content="https://api.p2prc.org,https://p2prc-signaling-miitylogva-uc.a.run.app">
   <title>P2PRC</title>
   <style>
     html, body { margin: 0; height: 100%; background: #fff; }
@@ -24,7 +27,6 @@
 <body>
   <canvas id="canvas"></canvas>
   <div id="invite-qr" class="qr"></div>
-  <div id="answer-qr" class="qr"></div>
   <script src="./runtime/react.production.min.js"></script>
   <script src="./runtime/react-dom.production.min.js"></script>
   <script src="./assets/qrcode.js"></script>
@@ -123,7 +125,7 @@
     let connected = false;
     const clearQR = () => {
       connected = true;
-      for (const id of ["invite-qr", "answer-qr"]) {
+      for (const id of ["invite-qr"]) {
         const el = document.getElementById(id);
         if (el) el.replaceChildren();
       }
@@ -201,11 +203,6 @@
       setInterval(beat, BEAT);
     }
     const scoped = (key) => "p2prc:" + (key === "identity" ? SLOT : key);
-
-    const relay = new BroadcastChannel("p2prc-pair");
-    relay.onmessage = (e) => {
-      if (e.data && e.data.kind === "answer") emit("answer", e.data.blob);
-    };
 
     const host = {
       async createOffer(requestID, peer) {
@@ -296,7 +293,6 @@
       pageURL(requestID) { done(requestID, true, location.origin + location.pathname); },
       openingHash(requestID) { done(requestID, true, openingHash); },
       setHash(value) { history.replaceState(null, "", "#" + value); },
-      publishAnswer(blob) { relay.postMessage({ kind: "answer", blob: blob }); },
       // --- Networking stack ---------------------------------------------
       //
       // Mechanical only. No decisions live here: the guest picks which
@@ -304,13 +300,14 @@
       // public STUN server at all. This side just moves bytes and answers
       // honestly about what it can do.
       capabilities(requestID) {
-        done(requestID, true, JSON.stringify({
-          // A tab has no listening socket. This single fact is what makes it
-          // a consumer of the network rather than a sustainer of it.
-          acceptsInbound: false,
-          servesHTTP: false,
-          discoversAddress: true,
-        }));
+        // A tab pairs by opening the link; it cannot scan a code.
+        done(requestID, true, JSON.stringify({ scansQR: false }));
+      },
+      // The seed signaling servers, from the page's own markup
+      // (<meta name="p2prc-seeds" content="url,url">): configuration, not code.
+      seeds(requestID) {
+        const meta = document.querySelector('meta[name="p2prc-seeds"]');
+        done(requestID, true, meta ? meta.content : "");
       },
       async httpGet(requestID, url) {
         try {
@@ -318,29 +315,16 @@
           done(requestID, response.ok, response.ok ? await response.text() : "");
         } catch (err) { done(requestID, false, ""); }
       },
-      delay(requestID, ms) { setTimeout(() => done(requestID, true, ""), ms); },
-      async stunLookup(requestID, server) {
+      async httpPost(requestID, url, body) {
         try {
-          const c = new RTCPeerConnection({ iceServers: [{ urls: "stun:" + server }] });
-          c.createDataChannel("probe");
-          await c.setLocalDescription(await c.createOffer());
-          await gathered(c);
-          const line = (c.localDescription.sdp.split("\r\n")
-            .find((l) => l.includes("typ srflx")) || "").split(" ");
-          c.close();
-          done(requestID, line.length > 5, line.length > 5 ? line[4] + ":" + line[5] : "");
+          const response = await fetch(url, {
+            method: "POST", mode: "cors", body,
+            headers: { "Content-Type": body.startsWith("{") ? "application/json" : "text/plain" },
+          });
+          done(requestID, response.ok, response.ok ? await response.text() : "");
         } catch (err) { done(requestID, false, ""); }
       },
-      startServer(requestID) {
-        done(requestID, false, "");
-      },
-      publishDirectory() {},
-      // A browser tab holds no Cloudflare key and cannot serve /turn, so it
-      // brokers no relay of its own and reports no spend — it only consumes
-      // credentials other peers broker.
-      localTURN(requestID) { done(requestID, true, ""); },
-      relaySpend(requestID) { done(requestID, true, ""); },
-
+      delay(requestID, ms) { setTimeout(() => done(requestID, true, ""), ms); },
       share(text) {
         if (navigator.share) { navigator.share({ text }).catch(() => {}); return; }
         navigator.clipboard?.writeText(text).catch(() => {});
