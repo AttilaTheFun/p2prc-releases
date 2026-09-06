@@ -116,6 +116,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       props.style = { ...(props.style || {}), "--uui-tint": params.tint, accentColor: params.tint };
     }
     if (params.clip === "1") props.style = { ...(props.style || {}), overflow: "hidden" };
+    if (params.aspect) props.style = { ...(props.style || {}), aspectRatio: String(params.aspect) };
+    if (params.interp === "none") props.style = { ...(props.style || {}), imageRendering: "pixelated" };
     if (params.posX !== undefined && params.posY !== undefined) {
       // `.position`: the child's center at (x, y) in the parent (the parent
       // is positioned; see the container rule in render()).
