@@ -380,11 +380,12 @@ export class SwiftP2PRCHost {
         if (failure !== null)
             throw new SwiftError(failure);
     }
-    callStart(requestID, peer) {
+    callStart(requestID, peer, video) {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
         Types.int32.encode(w, requestID);
         Types.string.encode(w, peer);
+        Types.bool.encode(w, video);
         const staged = stageBytes(this.runtime, w.data());
         const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 21, staged.ptr, staged.len);
         staged.drop();
@@ -393,13 +394,14 @@ export class SwiftP2PRCHost {
         if (failure !== null)
             throw new SwiftError(failure);
     }
-    callApplyRemote(requestID, peer, sdp, isOffer) {
+    callApplyRemote(requestID, peer, sdp, isOffer, video) {
         const handle = this.borrowHandle();
         const w = new BlobWriter();
         Types.int32.encode(w, requestID);
         Types.string.encode(w, peer);
         Types.string.encode(w, sdp);
         Types.bool.encode(w, isOffer);
+        Types.bool.encode(w, video);
         const staged = stageBytes(this.runtime, w.data());
         const box = this.runtime.call("swift_ffi_p2prc_P2PRCHost_invoke", handle, 22, staged.ptr, staged.len);
         staged.drop();
@@ -550,7 +552,8 @@ export function makeDispatcher_P2PRCHost(impl, runtime) {
             case 21: {
                 const a0 = Types.int32.decode(r);
                 const a1 = Types.string.decode(r);
-                impl.callStart(a0, a1);
+                const a2 = Types.bool.decode(r);
+                impl.callStart(a0, a1, a2);
                 return new Uint8Array(0);
             }
             case 22: {
@@ -558,7 +561,8 @@ export function makeDispatcher_P2PRCHost(impl, runtime) {
                 const a1 = Types.string.decode(r);
                 const a2 = Types.string.decode(r);
                 const a3 = Types.bool.decode(r);
-                impl.callApplyRemote(a0, a1, a2, a3);
+                const a4 = Types.bool.decode(r);
+                impl.callApplyRemote(a0, a1, a2, a3, a4);
                 return new Uint8Array(0);
             }
             case 23: {

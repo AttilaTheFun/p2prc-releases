@@ -59,6 +59,22 @@
     const remoteAudio = document.createElement("audio");
     remoteAudio.autoplay = true;
     document.body.appendChild(remoteAudio);
+    // A video call: the peer large, ourselves small in its corner, floating
+    // over the page (the page positions DOM over the canvas, as the QR once
+    // was). Shown while either side's video is flowing.
+    const videoPanel = document.createElement("div");
+    videoPanel.style.cssText = "position:fixed;right:16px;bottom:16px;width:320px;height:240px;display:none;"
+      + "border-radius:14px;overflow:hidden;background:#000;box-shadow:0 8px 32px rgba(0,0,0,.45);z-index:20";
+    const remoteVideo = document.createElement("video");
+    remoteVideo.autoplay = true; remoteVideo.playsInline = true;
+    remoteVideo.style.cssText = "width:100%;height:100%;object-fit:cover;background:#000";
+    const localVideo = document.createElement("video");
+    localVideo.autoplay = true; localVideo.muted = true; localVideo.playsInline = true;
+    localVideo.style.cssText = "position:absolute;right:8px;bottom:8px;width:96px;height:72px;object-fit:cover;"
+      + "border-radius:8px;background:#222";
+    videoPanel.appendChild(remoteVideo); videoPanel.appendChild(localVideo);
+    document.body.appendChild(videoPanel);
+    const showVideo = (on) => { videoPanel.style.display = on ? "block" : "none"; };
     const openingHash = location.hash;   // captured before we ever rewrite it
 
     // The guest starts asking for things during its first render, which happens
@@ -162,7 +178,11 @@
       conns.set(peer, { pc, channel: null, localStream: null });
       pc.onconnectionstatechange = () => emit("state", peer + " " + pc.connectionState);
       pc.ondatachannel = (e) => wire(peer, e.channel);
-      pc.ontrack = (e) => { remoteAudio.srcObject = e.streams[0] || new MediaStream([e.track]); };
+      pc.ontrack = (e) => {
+        const stream = e.streams[0] || new MediaStream([e.track]);
+        if (e.track.kind === "video") { remoteVideo.srcObject = stream; showVideo(true); }
+        else { remoteAudio.srcObject = stream; }
+      };
       return pc;
     }
 
@@ -253,25 +273,27 @@
         } catch (e) {}
       },
       // --- Calls: audio on the same pc, renegotiated over the channel. ----
-      async callStart(requestID, peer) {
+      async callStart(requestID, peer, video) {
         try {
           const entry = conns.get(peer);
           if (!entry) return done(requestID, false, "");
-          entry.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          entry.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: !!video });
           for (const track of entry.localStream.getTracks()) entry.pc.addTrack(track, entry.localStream);
+          if (video) { localVideo.srcObject = entry.localStream; showVideo(true); }
           const offer = await entry.pc.createOffer();
           await entry.pc.setLocalDescription(offer);
           await gathered(entry.pc);
           done(requestID, true, entry.pc.localDescription.sdp);
         } catch (err) { done(requestID, false, ""); }
       },
-      async callApplyRemote(requestID, peer, sdp, isOffer) {
+      async callApplyRemote(requestID, peer, sdp, isOffer, video) {
         try {
           const entry = conns.get(peer);
           if (!entry) return done(requestID, false, "");
           if (isOffer && !entry.localStream) {
-            entry.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            entry.localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: !!video });
             for (const track of entry.localStream.getTracks()) entry.pc.addTrack(track, entry.localStream);
+            if (video) { localVideo.srcObject = entry.localStream; showVideo(true); }
           }
           await entry.pc.setRemoteDescription({ type: isOffer ? "offer" : "answer", sdp });
           if (!isOffer) return done(requestID, true, "");
@@ -292,6 +314,9 @@
           if (sender.track) { try { entry.pc.removeTrack(sender); } catch (e) {} }
         }
         remoteAudio.srcObject = null;
+        remoteVideo.srcObject = null;
+        localVideo.srcObject = null;
+        showVideo(false);
       },
       save(key, value) { localStorage.setItem(scoped(key), value); },
       load(requestID, key) { done(requestID, true, localStorage.getItem(scoped(key)) || ""); },
