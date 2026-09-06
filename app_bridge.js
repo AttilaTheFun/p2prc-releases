@@ -1129,10 +1129,10 @@ export const Dependencies = {
         return {
             key: "swift_ffi_p2prc_P2PRCHost",
             lazy,
-            dispatcher: (args) => {
+            dispatcher: (args, runtime) => {
                 if (!impl)
                     impl = provide();
-                return makeDispatcher_P2PRCHost(impl)(args);
+                return makeDispatcher_P2PRCHost(impl, runtime)(args);
             },
         };
     },
@@ -1141,10 +1141,10 @@ export const Dependencies = {
         return {
             key: "swift_ffi_GPUWebHost",
             lazy,
-            dispatcher: (args) => {
+            dispatcher: (args, runtime) => {
                 if (!impl)
                     impl = provide();
-                return makeDispatcher_GPUWebHost(impl)(args);
+                return makeDispatcher_GPUWebHost(impl, runtime)(args);
             },
         };
     },
@@ -1153,10 +1153,10 @@ export const Dependencies = {
         return {
             key: "swift_ffi_WebHost",
             lazy,
-            dispatcher: (args) => {
+            dispatcher: (args, runtime) => {
                 if (!impl)
                     impl = provide();
-                return makeDispatcher_WebHost(impl)(args);
+                return makeDispatcher_WebHost(impl, runtime)(args);
             },
         };
     },
@@ -1297,7 +1297,7 @@ export async function load(wasm, options) {
             w.i64(3n);
             Types.bool.encode(w, dep.lazy);
             Types.string.encode(w, dep.key);
-            Types.int32.encode(w, registerForeign(dep.dispatcher));
+            Types.int32.encode(w, registerForeign((args) => dep.dispatcher(args, () => runtime)));
             return packForeignBytes(w.data());
         },
         task_enqueue: (job) => {

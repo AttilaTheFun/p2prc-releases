@@ -65,6 +65,22 @@ export function nextCallId() {
     callId += 1;
     return callId;
 }
+/** An ERROR blob carrying `message` (a dispatcher's failure answer). */
+export function encodeError(message) {
+    const w = new BlobWriter();
+    w.header(Tags.error, 0);
+    const bytes = encoder.encode(message);
+    w.i64(BigInt(bytes.length)).bytes(bytes);
+    return w.data();
+}
+/** Delivers a host implementation's answer to an in-flight async interface
+ * call: stages `blob` and calls the guest's fixed `swift_ffi_async_resume`
+ * export (the resumed Swift task runs on the next microtask pump). */
+export function resumeAsync(runtime, callId, blob) {
+    const staged = stageBytes(runtime, blob);
+    runtime.call("swift_ffi_async_resume", callId, staged.ptr, staged.len);
+    staged.drop();
+}
 export const foreignObjects = new Map();
 let foreignId = 0;
 export function registerForeign(dispatcher) {
