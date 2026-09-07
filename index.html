@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Seed signaling servers (docs/architecture.md §4): configuration the
        client health-checks like any other server, never trusted outright. -->
-  <meta name="p2prc-seeds" content="https://api.p2prc.org,https://p2prc-signaling-miitylogva-uc.a.run.app">
-  <title>P2PRC</title>
+  <meta name="convo-seeds" content="https://convo-node-667126654079.us-central1.run.app">
+  <title>Convo</title>
   <style>
     /* The system font everywhere, form controls included: browsers default
        a textarea to a serif/monospace face unless told otherwise, and the
@@ -88,7 +88,7 @@
     // hidden a while. Rendering in the same task as the event sidesteps both.
     function render() {
       if (!bridge) return;
-      try { bridge.uuiRender(); } catch (err) { console.warn("[p2prc] render", err); }
+      try { bridge.uuiRender(); } catch (err) { console.warn("[convo] render", err); }
     }
 
     function withBridge(fn) {
@@ -97,39 +97,20 @@
       render();
     }
     const emit = (kind, payload) =>
-      withBridge((b) => b.p2prcEvent(kind, String(payload)));
+      withBridge((b) => b.convoEvent(kind, String(payload)));
     const done = (id, ok, payload) => {
       if (!id) return;
-      withBridge((b) => b.p2prcRequestComplete(id, ok, String(payload)));
+      withBridge((b) => b.convoRequestComplete(id, ok, String(payload)));
     };
 
-    // --- Compact encoding: SDP is repetitive text, so it gzips well. ---
-    const b64url = (bytes) => btoa(String.fromCharCode(...bytes))
-      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    const unb64url = (text) => {
-      let s = text.replace(/-/g, "+").replace(/_/g, "/");
-      while (s.length % 4) s += "=";
-      return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-    };
-    async function pack(text) {
-      const stream = new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"));
-      return "z" + b64url(new Uint8Array(await new Response(stream).arrayBuffer()));
-    }
-    async function unpack(blob) {
-      const clean = String(blob).trim().replace(/^.*#[oa]=/, "").replace(/\s+/g, "");
-      const bytes = unb64url(clean.slice(1));
-      if (clean[0] === "r") return new TextDecoder().decode(bytes);
-      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-      return await new Response(stream).text();
-    }
+    // Binary frames (Part III §23) cross the FFI as base64.
+    const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+    const unb64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
     /// Trims SDP to what a data channel needs — smaller QR, easier scan. The
     /// trailing CRLF is required: without it the last attribute is unterminated
     /// and strict parsers reject the whole description.
-    const slim = (sdp) => sdp.split("\r\n")
-      .filter((l) => l !== "" && !(l.startsWith("a=candidate:") && l.includes(" tcp ")))
-      .join("\r\n") + "\r\n";
-
+    
     const gathered = (pc) => new Promise((resolve) => {
       if (pc.iceGatheringState === "complete") return resolve();
       // Don't wait forever on a candidate that may never arrive.
@@ -159,7 +140,8 @@
       // case `onopen` never fires.
       if (dc.readyState === "open") { clearQR(); emit("open", peer); }
       dc.onopen = () => { clearQR(); emit("open", peer); };
-      dc.onmessage = (e) => emit("frame", peer + " " + e.data);
+      dc.binaryType = "arraybuffer";
+      dc.onmessage = (e) => emit("frame", peer + " " + (typeof e.data === "string" ? btoa(e.data) : b64(e.data)));
       dc.onclose = () => emit("state", peer + " disconnected");
     }
 
@@ -189,14 +171,14 @@
     // Simulate a network drop for testing reconnection: closing the peer
     // connections is exactly what a WiFi→cellular switch does to the ICE
     // path. Exposes nothing a user can't already do by closing the tab.
-    window.__p2prcDropConnection = () => {
+    window.__convoDropConnection = () => {
       for (const [peer, entry] of conns) {
         if (entry.channel) { try { entry.channel.close(); } catch (e) {} }
         try { entry.pc.close(); } catch (e) {}
         emit("state", peer + " failed");
       }
     };
-    window.__p2prcState = () => Object.fromEntries(
+    window.__convoState = () => Object.fromEntries(
       [...conns].map(([peer, e]) => [peer, {
         pc: e.pc.connectionState, ice: e.pc.iceConnectionState,
         sig: e.pc.signalingState, chan: e.channel && e.channel.readyState,
@@ -233,32 +215,32 @@
       async createOffer(requestID, peer) {
         try {
           const c = newConnection(peer);
-          wire(peer, c.createDataChannel("p2prc", { ordered: true }));
+          wire(peer, c.createDataChannel("convo", { ordered: true }));
           await c.setLocalDescription(await c.createOffer());
           await gathered(c);
-          done(requestID, true, await pack(slim(c.localDescription.sdp)));
+          done(requestID, true, c.localDescription.sdp);
         } catch (err) { done(requestID, false, err.message); }
       },
       async acceptOffer(requestID, peer, blob) {
         try {
           const c = newConnection(peer);
-          await c.setRemoteDescription({ type: "offer", sdp: await unpack(blob) });
+          await c.setRemoteDescription({ type: "offer", sdp: blob });
           await c.setLocalDescription(await c.createAnswer());
           await gathered(c);
-          done(requestID, true, await pack(slim(c.localDescription.sdp)));
+          done(requestID, true, c.localDescription.sdp);
         } catch (err) { done(requestID, false, err.message); }
       },
       async acceptAnswer(requestID, peer, blob) {
         try {
           const entry = conns.get(peer);
           if (!entry) return done(requestID, false, "no connection");
-          await entry.pc.setRemoteDescription({ type: "answer", sdp: await unpack(blob) });
+          await entry.pc.setRemoteDescription({ type: "answer", sdp: blob });
           done(requestID, true, "");
         } catch (err) { emit("error", err.message); }
       },
       sendFrame(peer, text) {
         const entry = conns.get(peer);
-        if (entry && entry.channel && entry.channel.readyState === "open") entry.channel.send(text);
+        if (entry && entry.channel && entry.channel.readyState === "open") entry.channel.send(unb64(text));
       },
       closeConnection(peer) { closeEntry(peer); },
       setIceServers(json) {
@@ -334,9 +316,9 @@
         done(requestID, true, JSON.stringify({ scansQR: false }));
       },
       // The seed signaling servers, from the page's own markup
-      // (<meta name="p2prc-seeds" content="url,url">): configuration, not code.
+      // (<meta name="convo-seeds" content="https://convo-node-667126654079.us-central1.run.app">): configuration, not code.
       seeds(requestID) {
-        const meta = document.querySelector('meta[name="p2prc-seeds"]');
+        const meta = document.querySelector('meta[name="convo-seeds"]');
         done(requestID, true, meta ? meta.content : "");
       },
       async httpGet(requestID, url) {
@@ -352,6 +334,21 @@
             headers: { "Content-Type": body.startsWith("{") ? "application/json" : "text/plain" },
           });
           done(requestID, response.ok, response.ok ? await response.text() : "");
+        } catch (err) { done(requestID, false, ""); }
+      },
+      async httpGetBytes(requestID, url) {
+        try {
+          const response = await fetch(url, { mode: "cors" });
+          done(requestID, response.ok, response.ok ? b64(await response.arrayBuffer()) : "");
+        } catch (err) { done(requestID, false, ""); }
+      },
+      async httpPostBytes(requestID, url, body64) {
+        try {
+          const response = await fetch(url, {
+            method: "POST", mode: "cors", body: unb64(body64),
+            headers: { "Content-Type": "application/octet-stream" },
+          });
+          done(requestID, response.ok, response.ok ? b64(await response.arrayBuffer()) : "");
         } catch (err) { done(requestID, false, ""); }
       },
       delay(requestID, ms) { setTimeout(() => done(requestID, true, ""), ms); },
@@ -406,7 +403,7 @@
         if (!img) return;
         const link = document.createElement("a");
         link.href = img.src;
-        link.download = "p2prc-invite.png";
+        link.download = "convo-invite.png";
         link.click();
       },
 
@@ -428,7 +425,7 @@
         // Empty text means "clear it" — the client sends this when a pairing
         // is cancelled, so the code doesn't linger over the start screen.
         if (!text) { el.replaceChildren(); return; }
-        if (window.P2PRCQR) window.P2PRCQR.draw(el, text);
+        if (window.ConvoQR) window.ConvoQR.draw(el, text);
       },
     };
 

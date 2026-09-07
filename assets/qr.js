@@ -7,7 +7,7 @@
 (function (global) {
   "use strict";
 
-  global.P2PRCQR = {
+  global.ConvoQR = {
     draw: function (element, text) {
       element.replaceChildren();
       try {
