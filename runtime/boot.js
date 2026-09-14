@@ -56,6 +56,21 @@ export async function boot({
       "position:absolute;inset:0;overflow:hidden;display:flex;flex-direction:column";
     canvas.style.display = "none";
     (canvas.parentElement || document.body).appendChild(treeContainer);
+    // A phone's soft keyboard shrinks the visual viewport, and Safari then
+    // scrolls the page to show the focused field, carrying the pinned bars
+    // off the top. Size the surface to the visual viewport instead, so the
+    // bars stay and only the content between them shrinks (the iOS shape).
+    if (window.visualViewport && canvas.parentElement === document.body) {
+      const viewport = window.visualViewport;
+      const fit = () => {
+        treeContainer.style.top = `${Math.max(0, viewport.offsetTop)}px`;
+        treeContainer.style.height = `${Math.round(viewport.height)}px`;
+        treeContainer.style.bottom = "auto";
+        if (window.scrollY) window.scrollTo(0, 0);
+      };
+      viewport.addEventListener("resize", fit);
+      viewport.addEventListener("scroll", fit);
+    }
     // React-path `Map` host views: the wasm module draws real SwiftMap tiles
     // (when swift_map is linked, `--config=map`) into the page canvas through
     // swift_gpu's WebGPU executor; the canvas is parked INSIDE the map

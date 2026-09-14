@@ -551,7 +551,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   // NavigationStack; otherwise the TabView draws its own strip.
   let pendingTabPill = null;
 
-  function navStack(n, key, kids) {
+  function navStack(n, key, kids, ownsEdgeScroll) {
     const p = n.params || {};
     let pill = null;
     // The tab root is wrapped in a content box: navstack sits 1–3 levels
@@ -569,9 +569,20 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // Back (to the previous column) — the phone shape of a split detail.
     const splitBack = depth === 0 && currentSplitBack ? currentSplitBack.back : null;
     const showBar = depth > 0 || leading.length > 0 || trailing.length > 0 || inline || !!pill || !!splitBack;
+    // Bar-only chrome pins over the content (the iOS shape): translucent,
+    // stationary, extending into the top safe area, with its controls in
+    // the 44pt row beneath it; the content flows under it with an inset.
+    const pinned = showBar && navStackBarOnly(n);
     const rows = [];
     if (showBar) {
-      rows.push(h(R.Fragment, { key: "bar" }, navBar({
+      rows.push(h(pinned ? "div" : R.Fragment, pinned ? {
+        key: "bar",
+        style: {
+          position: "absolute", top: 0, left: 0, right: 0, zIndex: 5,
+          paddingTop: "env(safe-area-inset-top, 0px)", boxSizing: "border-box",
+          background: BAR_BACKGROUND(dark), backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+        },
+      } : { key: "bar" }, navBar({
         edit: n.edit,
         pill,
         onBack: splitBack,
@@ -627,17 +638,23 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         },
       }));
     }
-    rows.push(h("div", {
-      key: `content:${depth}`, // remount per level: a push swaps the screen
-      style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch" },
-    }, kids));
+    if (pinned) {
+      // remount per level: a push swaps the screen
+      rows.push(insetContent(`content:${depth}`, kids, ownsEdgeScroll));
+    } else {
+      rows.push(h("div", {
+        key: `content:${depth}`, // remount per level: a push swaps the screen
+        style: { display: "flex", flexDirection: "column", flex: 1, minHeight: 0, alignSelf: "stretch" },
+      }, kids));
+    }
     return h("div", {
       key,
       "data-navstack": "1",
       style: {
-        display: "flex", flexDirection: "column", flex: 1,
+        display: "flex", flexDirection: "column", flex: 1, position: "relative",
         minHeight: 0, minWidth: 0, alignSelf: "stretch", width: "100%",
         color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+        ...(pinned ? { "--uui-inset-top": "calc(44px + env(safe-area-inset-top, 0px))" } : {}),
       },
     }, rows);
   }
@@ -1046,6 +1063,103 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
 
   // starts at the newest content and follows growth while the user is at the
   // bottom; scrolling up unpins until they return (within a small slop).
+  // Edge insets (docs/renderer_layers.md, "bars"): a navigation bar and a
+  // `.safeAreaInset` bar are translucent chrome pinned to the edges of the
+  // screen they belong to, and the screen's outermost vertical scroll flows
+  // beneath them with content insets — the iOS shape — so its content can
+  // always reach the top and bottom. The insets travel as CSS variables
+  // (`--uui-inset-top/bottom`) from the chrome's container to the scroll,
+  // which consumes them as padding and zeroes them for its descendants.
+  // Content that is not a scroll is simply laid out inside the insets.
+  const BAR_BACKGROUND = (dark) => dark ? "rgba(28,28,30,0.82)" : "rgba(249,249,249,0.82)";
+  const INSET_TOP = "var(--uui-inset-top, 0px)";
+  const INSET_BOTTOM = "var(--uui-inset-bottom, 0px)";
+  const edgeScrolls = new WeakSet();
+  // Custom properties resolve on the element that declares them, so a box
+  // that pads itself by the insets zeroes them for its descendants one
+  // level down (a box-less wrapper).
+  const insetsEnd = (key, kids) => h("div", {
+    key, style: { display: "contents", "--uui-inset-top": "0px", "--uui-inset-bottom": "0px" },
+  }, kids);
+  // The outermost vertical scroll a screen's content reaches through plain
+  // wrappers (boxes, single-child columns, the content side of an inset
+  // stack), or null when the content is not a scroll.
+  function edgeScroll(n) {
+    let node = n;
+    for (let depth = 0; node && depth < 10; depth++) {
+      if (node.k === "scroll") return node.axis === "h" ? null : node;
+      const p = node.params || {};
+      // `.background` / `.overlay` layers ride alongside the content.
+      const ch = (node.ch || []).filter((c) => !(c.params && c.params.layer));
+      if (node.k === "stack" && p.inset) { node = ch[p.inset === "top" ? 1 : 0]; continue; }
+      if (node.k === "box" || (node.k === "stack" && node.axis === "v")) {
+        if (ch.length !== 1) return null;
+        node = ch[0];
+        continue;
+      }
+      return null;
+    }
+    return null;
+  }
+  // Whether a navstack's chrome is only the 44pt bar (no large title, no
+  // search field): then the bar pins over the content.
+  function navStackBarOnly(n) {
+    const p = n.params || {};
+    return (p.displayMode === "inline" || !p.title) && (p.searchPrompt == null || p.searchPrompt === "");
+  }
+  // The content side of pinned chrome: fills the container; unless its
+  // content is an edge scroll (which takes the insets as padding), the
+  // insets become the content's own padding.
+  function insetContent(key, kids, hasEdgeScroll) {
+    const style = {
+      display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0,
+      alignSelf: "stretch", width: "100%", position: "relative", boxSizing: "border-box",
+    };
+    if (!hasEdgeScroll) {
+      style.paddingTop = INSET_TOP;
+      style.paddingBottom = INSET_BOTTOM;
+      return h("div", { key, style }, insetsEnd("insets-end", kids));
+    }
+    return h("div", { key, style }, kids);
+  }
+  // `.safeAreaInset(edge: .bottom/.top)`: the inset is chrome pinned at
+  // that edge (translucent, extending into the device's safe area); its
+  // measured height is the inset the content beneath it flows under.
+  function InsetStack({ n, style, kids, edge, hasEdgeScroll }) {
+    const ref = R.useRef(null);
+    const barRef = R.useRef(null);
+    R.useLayoutEffect(() => {
+      const container = ref.current, bar = barRef.current;
+      if (!container || !bar) return undefined;
+      const name = edge === "top" ? "--uui-inset-top" : "--uui-inset-bottom";
+      const apply = () => container.style.setProperty(name, `${bar.getBoundingClientRect().height}px`);
+      apply();
+      if (typeof ResizeObserver === "undefined") return undefined;
+      const observer = new ResizeObserver(apply);
+      observer.observe(bar);
+      return () => observer.disconnect();
+    }, [edge]);
+    const dark = document.documentElement.dataset.theme === "dark";
+    const contentIndex = edge === "top" ? 1 : 0;
+    const insetIndex = edge === "top" ? 0 : 1;
+    const bar = h("div", {
+      key: "inset",
+      ref: barRef,
+      style: {
+        position: "absolute", left: 0, right: 0, zIndex: 5,
+        [edge === "top" ? "top" : "bottom"]: 0,
+        display: "flex", flexDirection: "column", alignItems: "stretch",
+        boxSizing: "border-box",
+        [edge === "top" ? "paddingTop" : "paddingBottom"]: `env(safe-area-inset-${edge}, 0px)`,
+        background: BAR_BACKGROUND(dark), backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+      },
+    }, kids[insetIndex]);
+    return h("div", {
+      ref,
+      style: { ...style, display: "flex", flexDirection: "column", position: "relative", minHeight: 0, minWidth: 0 },
+    }, insetContent("content", kids[contentIndex], hasEdgeScroll), bar);
+  }
+
   function BottomAnchoredScroll({ divProps, children }) {
     const ref = R.useRef(null);
     const pinned = R.useRef(true);
@@ -1346,12 +1460,26 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       };
       pendingTabPill = tabPill;
     }
+    // Pinned chrome (a bar-only navstack, a safe-area inset stack): find the
+    // content's edge scroll before the children render, so the scroll takes
+    // the chrome's insets as padding and flows beneath it.
+    let ownsEdgeScroll = false;
+    if (n.k === "hostView" && n.view === "navstack" && navStackBarOnly(n) && (n.ch || []).length === 1) {
+      const target = edgeScroll(n.ch[0]);
+      if (target) { edgeScrolls.add(target); ownsEdgeScroll = true; }
+    } else if (n.k === "stack" && (n.params || {}).inset && (n.ch || []).length === 2) {
+      const target = edgeScroll(n.ch[(n.params || {}).inset === "top" ? 1 : 0]);
+      if (target) { edgeScrolls.add(target); ownsEdgeScroll = true; }
+    }
     let kids = (n.ch || []).map((c, i) =>
       render(c, `${i}:${c.k}${c.axis || ""}${c.view || ""}`, childAxis));
     if (tabPill) pendingTabPill = null;
 
     switch (n.k) {
       case "stack": {
+        if ((n.params || {}).inset && kids.length === 2) {
+          return h(InsetStack, { key, n, style: s, kids, edge: n.params.inset, hasEdgeScroll: ownsEdgeScroll });
+        }
         if (n.axis === "z") {
           // Layers stretch over the whole stack; each aligns its child by
           // the ZStack's alignment (SwiftUI's ZStack(alignment:)).
@@ -1376,7 +1504,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
                 // taps on the field). Inherited, so the child re-enables it.
                 pointerEvents: "none",
               },
-            }, h("div", { style: { display: "contents", pointerEvents: "auto" } }, kid));
+            }, h("div", {
+              style: {
+                pointerEvents: "auto", display: "flex", minWidth: 0, minHeight: 0,
+                width: c.growW ? "100%" : undefined, height: c.growH ? "100%" : undefined,
+              },
+            }, kid));
           });
         } else {
           s.display = "flex";
@@ -1423,6 +1556,17 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         s.minHeight = 0;
         s.minWidth = 0;
         s[n.axis === "h" ? "overflowX" : "overflowY"] = "auto";
+        if (edgeScrolls.has(n)) {
+          // The screen's edge scroll: chrome insets become content insets,
+          // and end here (nested scrolls are not under the chrome).
+          const pad = n.padding || [0, 0, 0, 0];
+          s.paddingTop = `calc(${Number(pad[0]) || 0}px + ${INSET_TOP})`;
+          s.paddingBottom = `calc(${Number(pad[2]) || 0}px + ${INSET_BOTTOM})`;
+          s.scrollPaddingTop = INSET_TOP;
+          s.scrollPaddingBottom = INSET_BOTTOM;
+          s.boxSizing = "border-box";
+          kids = insetsEnd("insets-end", kids);
+        }
         // `.scrollDismissesKeyboard(.immediately / .interactively)`: a scroll
         // (or a touch drag) blurs the focused field, closing the soft keyboard.
         if ((n.params || {}).dismissKeyboard && (n.params || {}).dismissKeyboard !== "never") {
@@ -1488,7 +1632,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         return h("div", props, kids);
       }
       case "hostView":
-        if (n.view === "navstack") return navStack(n, key, kids);
+        if (n.view === "navstack") return navStack(n, key, kids, ownsEdgeScroll);
         if (n.view === "navsplit") return navSplit(n, key, kids);
         if (n.view === "tabs") {
           if ((n.params || {}).style === "sidebarAdaptable") {
@@ -1557,7 +1701,15 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
                 alignItems: av === "start" ? "flex-start" : av === "end" ? "flex-end" : "center",
                 justifyContent: ah === "start" ? "flex-start" : ah === "end" ? "flex-end" : "center",
               },
-            }, h("div", { style: { pointerEvents: "auto", display: "flex" } }, kid));
+            }, h("div", {
+              style: {
+                pointerEvents: "auto", display: "flex", minWidth: 0, minHeight: 0,
+                // A greedy layer (a shape backdrop, a stroked border) fills
+                // the box; content-sized layers sit at their alignment.
+                width: (n.ch || [])[i] && (n.ch || [])[i].growW ? "100%" : undefined,
+                height: (n.ch || [])[i] && (n.ch || [])[i].growH ? "100%" : undefined,
+              },
+            }, kid));
           };
           kids = kids.map((kid, i) => {
             const layer = layerOf(i);
