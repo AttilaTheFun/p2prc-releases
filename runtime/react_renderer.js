@@ -14,6 +14,8 @@
 
 export function createReactTreeRenderer({ container, sendEvent, assetBase = "assets/", mapSurface = null }) {
   const R = window.React;
+  const SYSTEM_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+  const MONO_FONT = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
   const h = R.createElement;
   const root = window.ReactDOM.createRoot(container);
 
@@ -195,10 +197,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, [n.v]);
     const p = n.params || {};
     const multiline = p.axis === "v";
+    // `TextEditor`: fills its container and scrolls inside — no line cap.
+    const editor = p.editor === "1";
     const lineHeight = (n.size || 15) * 1.35;
     const fit = () => {
       const el = areaRef.current;
-      if (!el) return;
+      if (!el || editor) return;
       el.style.height = "auto";
       const max = Number(p.maxLines || 5) * lineHeight + (p.fieldStyle === "plain" ? 0 : 14);
       el.style.height = `${Math.min(el.scrollHeight, max)}px`;
@@ -207,7 +211,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     R.useLayoutEffect(() => { if (multiline) fit(); });
     // `.textFieldStyle(.plain)`: the text alone — no bezel, no background —
     // for a field that sits inside its own bubble.
-    const plain = p.fieldStyle === "plain";
+    // The default (`.automatic`) draws no bezel, like SwiftUI's plain field on
+    // iOS — apps compose their own bubble — so only `.roundedBorder` gets one.
+    const plain = p.fieldStyle !== "roundedBorder";
     const style = {
       ...(n.baseStyle || {}),
       fontSize: n.size || 15,
@@ -219,8 +225,36 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       color: "inherit",
       minWidth: 0,
       alignSelf: "stretch",
+      // Form controls don't inherit the page font (Safari falls back to
+      // the UA's serif); pin the system stack like every text node.
+      fontFamily: p.mono === "1" ? MONO_FONT : SYSTEM_FONT,
     };
+    // `.keyboardType` → inputmode/type hints; `.textInputAutocapitalization`
+    // and `.autocorrectionDisabled` → their HTML attributes.
+    const keyboardHints = {
+      numberPad: { inputMode: "numeric" }, decimalPad: { inputMode: "decimal" },
+      phonePad: { inputMode: "tel" }, emailAddress: { inputMode: "email" },
+      URL: { inputMode: "url" }, webSearch: { inputMode: "search" },
+      numbersAndPunctuation: { inputMode: "decimal" }, asciiCapableNumberPad: { inputMode: "numeric" },
+    }[p.keyboard] || {};
+    const autocap = p.autocap ? { autoCapitalize: p.autocap === "never" ? "off" : p.autocap } : {};
+    const autocorrect = p.autocorrect === "0" ? { autoCorrect: "off", spellCheck: false } : {};
+    // `.focused($state)`: the guest's wish drives focus; focus changes go back.
+    const focusRef = R.useRef(null);
+    R.useEffect(() => {
+      const el = focusRef.current || areaRef.current;  // textarea keeps its own ref
+      if (!el || !p.focusId) return;
+      const want = p.focus === "1";
+      if (want && document.activeElement !== el) el.focus();
+      else if (!want && document.activeElement === el) el.blur();
+    }, [p.focus, p.focusId]);
+    const focusHandlers = p.focusId ? {
+      onFocus: () => { if (p.focus !== "1") sendEvent(p.focusId, "1"); },
+      onBlur: () => { if (p.focus === "1") sendEvent(p.focusId, "0"); },
+    } : {};
     const shared = {
+      ...keyboardHints, ...autocap, ...autocorrect, ...focusHandlers,
+      ref: focusRef,
       value,
       placeholder: n.placeholder,
       onChange: (e) => {
@@ -241,6 +275,27 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         }
       },
     };
+    if (editor) {
+      return h("textarea", {
+        ...shared,
+        ref: areaRef,
+        spellCheck: false,
+        autoCapitalize: "off",
+        autoCorrect: "off",
+        style: {
+          ...style,
+          lineHeight: `${lineHeight}px`,
+          resize: "none",
+          flex: "1 1 0",
+          minHeight: 0,
+          height: "100%",
+          boxSizing: "border-box",
+          overflow: "auto",
+          whiteSpace: "pre",
+          tabSize: 4,
+        },
+      });
+    }
     if (multiline) {
       return h("textarea", {
         ...shared,
@@ -250,11 +305,94 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           ...style,
           lineHeight: `${lineHeight}px`,
           resize: "none",
-          fontFamily: "inherit",
         },
       });
     }
     return h("input", { ...shared, type: n.searchStyle ? "search" : "text", style });
+  }
+
+  // Syntax highlighting for the code editor: a small Swift tokenizer
+  // (comments, strings with interpolation, keywords, attributes, numbers,
+  // capitalized type names), emitted as spans over the textarea's text.
+  const SWIFT_KEYWORDS = new Set(("associatedtype class deinit enum extension func import init inout internal let " +
+    "operator private protocol public static struct subscript typealias var fileprivate open some any " +
+    "break case continue default defer do else fallthrough for guard if in repeat return switch where while " +
+    "as catch false is nil rethrows super self Self throw throws true try await async actor macro " +
+    "convenience dynamic final indirect lazy mutating nonmutating optional override required weak unowned").split(" "));
+  function highlightSwift(source, dark) {
+    const c = dark
+      ? { kw: "#fc5fa3", str: "#fc6a5d", com: "#6c7986", num: "#d0bf69", type: "#5dd8ff", attr: "#fd8f3f", txt: "rgba(255,255,255,0.92)" }
+      : { kw: "#ad3da4", str: "#d12f1b", com: "#5d6c79", num: "#272ad8", type: "#3f6e75", attr: "#947100", txt: "rgba(0,0,0,0.9)" };
+    const out = [];
+    const re = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*")|(@[A-Za-z_]\w*)|(\b\d[\d_]*(?:\.\d+)?\b)|(\b[A-Za-z_]\w*\b)/g;
+    let last = 0, m, key = 0;
+    while ((m = re.exec(source))) {
+      if (m.index > last) out.push(source.slice(last, m.index));
+      let color = null;
+      if (m[1]) color = c.com;
+      else if (m[2]) color = c.str;
+      else if (m[3]) color = c.attr;
+      else if (m[4]) color = c.num;
+      else if (m[5]) color = SWIFT_KEYWORDS.has(m[5]) ? c.kw : (/^[A-Z]/.test(m[5]) ? c.type : null);
+      out.push(color ? h("span", { key: key++, style: { color } }, m[0]) : m[0]);
+      last = re.lastIndex;
+    }
+    if (last < source.length) out.push(source.slice(last));
+    out.push("\n");  // a trailing newline keeps the underlay as tall as the textarea's last line
+    return out;
+  }
+
+  // The code editor host view (`CodeEditor(text:fileName:)` on the web): a
+  // transparent-text textarea for input and caret over a <pre> underlay
+  // carrying the highlighted copy; both share font metrics and scroll.
+  function CodeEditor({ n }) {
+    const [value, setValue] = R.useState(n.v || "");
+    const pending = R.useRef([]);
+    const lastSerialized = R.useRef(n.v || "");
+    const preRef = R.useRef(null);
+    R.useEffect(() => {
+      const v = n.v || "";
+      if (v === lastSerialized.current) return;
+      lastSerialized.current = v;
+      setValue((current) => {
+        if (v === current) { pending.current = []; return current; }
+        const echo = pending.current.indexOf(v);
+        if (echo >= 0) { pending.current.splice(0, echo + 1); return current; }
+        pending.current = [];
+        return v;
+      });
+    }, [n.v]);
+    const dark = document.documentElement.dataset.theme === "dark"
+      || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const lang = (n.params || {}).lang || "plain";
+    const metrics = { fontFamily: MONO_FONT, fontSize: 13, lineHeight: "19px", tabSize: 4, whiteSpace: "pre", padding: "12px 14px", margin: 0, boxSizing: "border-box" };
+    const onChange = (e) => {
+      const next = e.target.value;
+      pending.current.push(next);
+      setValue(next);
+      sendEvent(n.edit, next);
+    };
+    // Tab inserts spaces instead of leaving the field.
+    const onKeyDown = (e) => {
+      if (e.key !== "Tab") return;
+      e.preventDefault();
+      const el = e.target, start = el.selectionStart, end = el.selectionEnd;
+      const next = value.slice(0, start) + "    " + value.slice(end);
+      pending.current.push(next);
+      setValue(next);
+      sendEvent(n.edit, next);
+      requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = start + 4; });
+    };
+    const onScroll = (e) => { if (preRef.current) { preRef.current.scrollTop = e.target.scrollTop; preRef.current.scrollLeft = e.target.scrollLeft; } };
+    return h("div", { style: { position: "relative", flex: "1 1 0", minHeight: 0, alignSelf: "stretch", width: "100%", height: "100%", overflow: "hidden", background: dark ? "#1f1f22" : "#fbfbfc" } },
+      h("pre", { ref: preRef, "aria-hidden": true, style: { ...metrics, position: "absolute", inset: 0, overflow: "hidden", color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.9)", pointerEvents: "none" } },
+        lang === "swift" ? highlightSwift(value, dark) : value + "\n"),
+      h("textarea", {
+        value, onChange, onKeyDown, onScroll, spellCheck: false, autoCapitalize: "off", autoCorrect: "off", autoComplete: "off",
+        "aria-label": (n.params || {}).a11yLabel || "Code",
+        style: { ...metrics, position: "absolute", inset: 0, width: "100%", height: "100%", border: "none", outline: "none", resize: "none",
+          background: "transparent", color: "transparent", caretColor: dark ? "#fff" : "#000", overflow: "auto" },
+      }));
   }
 
   // A segmented control (`.pickerStyle(.segmented)`, inline or in a bar).
@@ -312,6 +450,10 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     const segments = split("segments").map((s) => (s ? s.split("\u001f") : []));
     const segmentSelected = split("segmentSelected").map((s) => Number(s) || 0);
     const prominent = split("prominent");
+    // `.accessibilityLabel` on a bar button → aria-label (glyph-only items
+    // like ✎ / ▶︎ read as "Edit" / "Run" to assistive tech and the tap tool).
+    const leadingLabels = split("leadingLabels");
+    const trailingLabels = split("trailingLabels");
     const trailingItem = (i, extra) => segments[i] && segments[i].length
       ? h(Segmented, {
           key: `t${i}`, options: segments[i], selected: segmentSelected[i] || 0, dark, compact: true,
@@ -319,6 +461,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         })
       : h("button", {
           key: `t${i}`,
+          "aria-label": trailingLabels[i] || undefined,
           style: { ...button, ...(prominent[i] === "1" ? { fontWeight: 600 } : {}), ...(extra || {}) },
           onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
         }, trailing[i] || "");
@@ -330,7 +473,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           ? h("button", { key: "back", style: button, onClick: () => (n.onBack ? n.onBack() : sendEvent(n.edit, "back")) }, "‹ Back")
           : null,
         leading.map((title, i) => h("button", {
-          key: `l${i}`, style: button,
+          key: `l${i}`, style: button, "aria-label": leadingLabels[i] || undefined,
           onClick: () => sendEvent(n.edit, `leading:${i}`),
         }, title))),
       h("div", {
@@ -439,6 +582,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           dark: p.dark,
           leading: p.leading,
           trailingItems: p.trailingItems,
+          leadingLabels: p.leadingLabels,
+          trailingLabels: p.trailingLabels,
           principal: p.principal,
           segments: p.segments,
           segmentSelected: p.segmentSelected,
@@ -936,7 +1081,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       case "menu": {
         if (n.view === "picker" && p.style === "segmented") {
           return h(Segmented, {
-            key, options: n.options || [], selected: Number(n.v) || 0,
+            key: props.key, options: n.options || [], selected: Number(n.v) || 0,
             dark: document.documentElement.dataset.theme === "dark"
               || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches),
             onSelect: (i) => sendEvent(n.edit, String(i)),
@@ -961,6 +1106,22 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         props.src = n.v;
         props.style = { ...props.style, border: "none", width: "100%", height: "100%", flex: 1, alignSelf: "stretch" };
         return h("iframe", props);
+      case "codeeditor":
+        return h(CodeEditor, { key: props.key, n });
+      case "surface": {
+        // A page-owned surface: the host mounts its own DOM into this
+        // element (`window.uuiSurfaceMount(name, element | null, send)`),
+        // e.g. the Playground's running build; `send` reports back through
+        // the host view's value channel.
+        props.style = {
+          ...props.style, width: "100%", height: "100%", flex: 1,
+          alignSelf: "stretch", position: "relative", overflow: "hidden", display: "flex", flexDirection: "column",
+        };
+        const name = n.v;
+        const send = (value) => sendEvent(n.edit, value);
+        props.ref = (el) => { if (window.uuiSurfaceMount) window.uuiSurfaceMount(name, el, send); };
+        return h("div", props);
+      }
       case "map": {
         // Real SwiftMap tiles: the wasm module draws into the page canvas,
         // which the boot layer parks inside this element (mapSurface). This
@@ -1052,7 +1213,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     const compact = window.innerWidth < 700;
     const child = (n.ch || [])[0] || {};
     const greedy = !!child.growH || !!child.expandH;
-    const sheetStyle = compact
+    // `.fullScreenCover`: the panel IS the screen.
+    const cover = !!(n.params && n.params.cover === "1");
+    const sheetStyle = cover
+      ? {
+          background: panelBg, width: "100%", height: "100%", boxSizing: "border-box",
+          overflow: "hidden", padding: 0, display: "flex", flexDirection: "column", alignItems: "stretch",
+        }
+      : compact
       ? {
           background: panelBg, borderTopLeftRadius: 14, borderTopRightRadius: 14,
           width: "100%", boxSizing: "border-box",
@@ -1072,9 +1240,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       style: {
         position: "fixed", inset: 0, display: "flex", zIndex: 20,
         alignItems: isAlert || !compact ? "center" : "flex-end", justifyContent: "center",
-        background: "rgba(0,0,0,0.35)",
+        background: cover ? "transparent" : "rgba(0,0,0,0.35)",
       },
-      onClick: () => sendEvent(n.dismiss, ""),
+      onClick: () => { if (!cover) sendEvent(n.dismiss, ""); },
     }, h("div", {
       onClick: (e) => e.stopPropagation(),
       style: isAlert
@@ -1149,6 +1317,13 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         s.height = "100%";
       }
     }
+    // Finite frame bounds: a `.frame(maxWidth: 400)` view is flexible up to
+    // the cap (it takes what it is offered, then stops growing).
+    const bounds = n.params || {};
+    if (bounds.maxW != null && n.width == null) { s.maxWidth = Number(bounds.maxW); if (!n.expandW) s.width = "100%"; s.boxSizing = "border-box"; }
+    if (bounds.maxH != null && n.height == null) { s.maxHeight = Number(bounds.maxH); s.boxSizing = "border-box"; }
+    if (bounds.minW != null) s.minWidth = Number(bounds.minW);
+    if (bounds.minH != null) s.minHeight = Number(bounds.minH);
     // SwiftUI fixed frames don't compress; keep flexbox from shrinking them
     // along the parent's main axis.
     if (parentAxis === "h" && n.width != null) s.flexShrink = 0;
@@ -1195,8 +1370,13 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
                 // Each layer stacks above the previous even when an earlier
                 // layer contains positioned content (the map's canvas).
                 position: "relative", zIndex: i,
+                // A layer spans the whole stack, but only its content is
+                // hittable: the empty part lets taps through to the layers
+                // below (a send button over a text field must not swallow
+                // taps on the field). Inherited, so the child re-enables it.
+                pointerEvents: "none",
               },
-            }, kid);
+            }, h("div", { style: { display: "contents", pointerEvents: "auto" } }, kid));
           });
         } else {
           s.display = "flex";
@@ -1215,10 +1395,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         s.fontWeight = n.weight;
         s.color = rgba(n.color);
         s.whiteSpace = "pre-wrap";
-        s.fontFamily = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+        s.fontFamily = (n.params && n.params.mono === "1") ? MONO_FONT : SYSTEM_FONT;
         if (n.lines) {
           s.display = "-webkit-box";
           s.WebkitLineClamp = n.lines;
+          // `.truncationMode`: CSS only truncates at the end; head/middle fall
+          // back to it (the native hosts do the real thing).
+          if ((n.params || {}).truncation) { s.textOverflow = "ellipsis"; s.overflow = "hidden"; }
+          if ((n.params || {}).lineSpacing) s.lineHeight = `calc(1.25em + ${Number((n.params || {}).lineSpacing)}px)`;
           s.WebkitBoxOrient = "vertical";
           s.overflow = "hidden";
         }
@@ -1363,14 +1547,17 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           const wrap = (kid, i, z) => {
             // `.overlay(alignment:)` / `.background(alignment:)`.
             const [ah, av] = ((((n.ch || [])[i] || {}).params || {}).layerAlign || "center,center").split(",");
+            // The layer box itself is pointer-transparent (a corner pencil
+            // must not swallow the page's touch scrolling); its content is not.
             return h("div", {
               key: `layer${i}`,
               style: {
                 position: "absolute", inset: 0, display: "flex", zIndex: z, overflow: "hidden",
+                pointerEvents: "none",
                 alignItems: av === "start" ? "flex-start" : av === "end" ? "flex-end" : "center",
                 justifyContent: ah === "start" ? "flex-start" : ah === "end" ? "flex-end" : "center",
               },
-            }, kid);
+            }, h("div", { style: { pointerEvents: "auto", display: "flex" } }, kid));
           };
           kids = kids.map((kid, i) => {
             const layer = layerOf(i);

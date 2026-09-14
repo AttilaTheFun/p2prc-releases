@@ -328,6 +328,9 @@ export async function boot({
       // An embedded surface must not reconfigure the host page.
       if (embedded) return;
       if (key === "windowTitle") document.title = value;
+      // A page hook for app-specific commands (`platformCommand("splash",
+      // "demo:2048", on: .wasm)` → the page runs the demo).
+      if (typeof window.uuiPlatformCommand === "function") window.uuiPlatformCommand(key, value);
     },
     epochMillis() { return Date.now(); },
     renderTree(tree) {
@@ -401,7 +404,8 @@ export async function boot({
     return [event.clientX - rect.left, event.clientY - rect.top];
   };
   canvas.addEventListener("pointerdown", (event) => {
-    canvas.setPointerCapture(event.pointerId);
+    // Synthetic events (tests) carry pointer ids the browser doesn't own.
+    try { canvas.setPointerCapture(event.pointerId); } catch (_) {}
     bridge.uuiPointerEvent(0, ...localPoint(event));
   });
   canvas.addEventListener("pointermove", (event) => {
