@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- Seed signaling servers (docs/architecture.md §4): configuration the
        client health-checks like any other server, never trusted outright. -->
-  <meta name="convo-seeds" content="https://convo-node-667126654079.us-central1.run.app">
+  <meta name="convo-seeds" content="https://convo-node-1-667126654079.us-central1.run.app,https://convo-node-2-667126654079.us-central1.run.app,https://convo-node-3-667126654079.us-central1.run.app">
   <title>Convo</title>
   <style>
     /* The system font everywhere, form controls included: browsers default
@@ -302,6 +302,11 @@
       },
       save(key, value) { localStorage.setItem(scoped(key), value); },
       load(requestID, key) { done(requestID, true, localStorage.getItem(scoped(key)) || ""); },
+      // A browser has no keychain: the identity's secret lives in this
+      // origin's localStorage, as every web wallet's does. The recovery
+      // phrase shown at creation is the way to keep it.
+      saveSecret(key, value) { if (value) localStorage.setItem(scoped("secret:" + key), value); else localStorage.removeItem(scoped("secret:" + key)); },
+      loadSecret(requestID, key) { done(requestID, true, localStorage.getItem(scoped("secret:" + key)) || ""); },
       pageURL(requestID) { done(requestID, true, location.origin + location.pathname); },
       openingHash(requestID) { done(requestID, true, openingHash); },
       setHash(value) { history.replaceState(null, "", "#" + value); },
@@ -316,7 +321,7 @@
         done(requestID, true, JSON.stringify({ scansQR: false }));
       },
       // The seed signaling servers, from the page's own markup
-      // (<meta name="convo-seeds" content="https://convo-node-667126654079.us-central1.run.app">): configuration, not code.
+      // (<meta name="convo-seeds" content="https://convo-node-1-667126654079.us-central1.run.app,https://convo-node-2-667126654079.us-central1.run.app,https://convo-node-3-667126654079.us-central1.run.app">): configuration, not code.
       seeds(requestID) {
         const meta = document.querySelector('meta[name="convo-seeds"]');
         done(requestID, true, meta ? meta.content : "");
