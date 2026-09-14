@@ -1139,8 +1139,6 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       observer.observe(bar);
       return () => observer.disconnect();
     }, [edge]);
-    const dark = document.documentElement.dataset.theme === "dark"
-      || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
     const contentIndex = edge === "top" ? 1 : 0;
     const insetIndex = edge === "top" ? 0 : 1;
     const bar = h("div", {
@@ -1152,7 +1150,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         display: "flex", flexDirection: "column", alignItems: "stretch",
         boxSizing: "border-box",
         [edge === "top" ? "paddingTop" : "paddingBottom"]: `env(safe-area-inset-${edge}, 0px)`,
-        background: BAR_BACKGROUND(dark), backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+        // No fill of its own: as on iOS, the inset's content draws what it
+        // wants (a composer pill), and the scroll shows through around it.
       },
     }, kids[insetIndex]);
     return h("div", {
