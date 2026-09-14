@@ -1139,7 +1139,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       observer.observe(bar);
       return () => observer.disconnect();
     }, [edge]);
-    const dark = document.documentElement.dataset.theme === "dark";
+    const dark = document.documentElement.dataset.theme === "dark"
+      || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
     const contentIndex = edge === "top" ? 1 : 0;
     const insetIndex = edge === "top" ? 0 : 1;
     const bar = h("div", {
@@ -1163,10 +1164,25 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   function BottomAnchoredScroll({ divProps, children }) {
     const ref = R.useRef(null);
     const pinned = R.useRef(true);
-    R.useLayoutEffect(() => {
+    const pin = () => {
       const el = ref.current;
       if (el && pinned.current) el.scrollTop = el.scrollHeight;
-    });
+    };
+    R.useLayoutEffect(pin);
+    // The viewport shrinking (the soft keyboard) resizes the scroll without
+    // a re-render: stay at the bottom through that too, as Messages does.
+    R.useEffect(() => {
+      const el = ref.current;
+      if (!el) return undefined;
+      const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(pin);
+      if (observer) observer.observe(el);
+      const viewport = window.visualViewport;
+      if (viewport) viewport.addEventListener("resize", pin);
+      return () => {
+        if (observer) observer.disconnect();
+        if (viewport) viewport.removeEventListener("resize", pin);
+      };
+    }, []);
     return h("div", {
       ...divProps,
       ref,
@@ -1723,8 +1739,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           s.flexDirection = "column";
           s.alignItems = alignCSS[n.alignH] || "center";
           s.justifyContent = alignCSS[n.alignV] || "center";
-          s.minHeight = 0;
-          s.minWidth = 0;
+          // Shrinkable by default, but a `.frame(minHeight:)` /
+          // `.frame(minWidth:)` bound set above stands (a chat log that is
+          // at least the viewport tall, bottom-aligned).
+          if ((n.params || {}).minH == null) s.minHeight = 0;
+          if ((n.params || {}).minW == null) s.minWidth = 0;
         }
         // Semantic list rows carry a `cell` role instead of baked-in
         // chrome — this host's row idiom: comfortable padding, a minimum

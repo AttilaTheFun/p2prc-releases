@@ -3,6 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f9f9f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+  <!-- Added to the Home Screen, the page runs without Safari's chrome (no
+       URL bar riding up with the keyboard); the status bar area is ours. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Convo">
+  <link rel="manifest" href="./assets/manifest.webmanifest">
   <!-- Seed signaling servers (docs/architecture.md §4): configuration the
        client health-checks like any other server, never trusted outright. -->
   <meta name="convo-seeds" content="https://convo-node-1-667126654079.us-central1.run.app,https://convo-node-2-667126654079.us-central1.run.app,https://convo-node-3-667126654079.us-central1.run.app">
@@ -14,6 +24,7 @@
     html, body { font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     input, textarea, button, [contenteditable] { font-family: inherit; font-size: inherit; }
     html, body { margin: 0; height: 100%; background: #fff; }
+    @media (prefers-color-scheme: dark) { html, body { background: #000; } }
     #canvas { width: 100%; height: 100%; display: block; touch-action: none; }
     #error { font: 14px monospace; color: #b00; padding: 16px; white-space: pre-wrap; }
     /* The QR is host-drawn; the wasm UI frames it. Centered card, sized so
