@@ -441,7 +441,7 @@
       // the published site relies on normal HTTP caching.
       wasmURL: "./app.wasm" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
       rendererName: new URLSearchParams(location.search).get("renderer") || "react",
-      dependencies: { host: Dependencies.p2PRCHost(() => host) },
+      dependencies: { host: Dependencies.convoHost(() => host) },
     }).then((result) => {
       bridge = result.bridge;
       while (queued.length) queued.shift()(bridge);
