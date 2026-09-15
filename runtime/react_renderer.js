@@ -35,7 +35,17 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       ".uui-switch:checked{background:#34c759}" +
       ".uui-switch::after{content:'';position:absolute;left:2px;top:2px;width:22px;height:22px;" +
       "border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.3);transition:left 0.15s}" +
-      ".uui-switch:checked::after{left:20px}";
+      ".uui-switch:checked::after{left:20px}" +
+      // iOS inset-grouped list: rows in rounded groups on the grouped
+      // background, separators inset from the leading edge, the last row of
+      // a group (before a header, or at the end) closing it.
+      ".uui-ig{padding:12px 16px 24px;box-sizing:border-box;display:flex;flex-direction:column;align-self:stretch;width:100%}" +
+      ".uui-ig-row{background:var(--uui-cell-bg,#fff);position:relative}" +
+      ".uui-ig-row::after{content:'';position:absolute;left:16px;right:0;bottom:0;height:1px;background:var(--uui-separator,rgba(60,60,67,0.29))}" +
+      ".uui-ig-row:first-child,.uui-ig-header+.uui-ig-row{border-top-left-radius:10px;border-top-right-radius:10px}" +
+      ".uui-ig-row:last-child,.uui-ig-row:has(+ .uui-ig-header){border-bottom-left-radius:10px;border-bottom-right-radius:10px}" +
+      ".uui-ig-row:last-child::after,.uui-ig-row:has(+ .uui-ig-header)::after{display:none}" +
+      ".uui-ig-header{padding:20px 16px 7px;font-size:13px;text-transform:uppercase;letter-spacing:0.02em;color:rgba(120,120,128,0.9)}";
     document.head.appendChild(style);
   }
 
@@ -158,7 +168,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       };
       // Web-idiomatic press feedback on tappable regions.
       props.className = ((props.className || "") + " uui-tap").trim();
-      if (props.style.borderRadius == null) props.style.borderRadius = 8;
+      // List rows keep their list's corners (an inset group rounds only its
+      // first and last row); other tappables get a soft press shape.
+      if (props.style.borderRadius == null && (n.params || {}).cell == null) props.style.borderRadius = 8;
     }
     return props;
   }
@@ -959,7 +971,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // Compact: pane 0 = sidebar, 1 = content, 2 = detail. The guest advances
     // the pane on selection changes; Back retreats — drawn in the pane's
     // own navigation bar when it has one (a `SplitBackBar` row otherwise).
-    return h(CompactPane, { key: `pane${pane}`, pane, node: nodes[pane], background: pane === 0 ? sidebarBg : undefined,
+    // Every compact pane sits on the grouped background (iOS: the inbox's
+    // inset-grouped list and the thread share it).
+    return h(CompactPane, { key: `pane${pane}`, pane, node: nodes[pane], background: GROUPED_BACKGROUND(dark),
       onBack: pane > 0 ? () => setPane(pane - 1) : null, dark });
   }
 
@@ -1044,9 +1058,20 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     R.useLayoutEffect(() => {
       const el = ref.current;
       if (!el) return undefined;
+      const edge = el.querySelector("[data-edge-scroll]");
       const report = () => {
-        const w = Math.round(el.clientWidth);
-        const h2 = Math.round(el.clientHeight);
+        let w = el.clientWidth;
+        let h2 = el.clientHeight;
+        if (edge) {
+          // The box holds the screen's edge scroll: what the reader
+          // measures is the region between the bars (the safe area), as
+          // SwiftUI reports it, not the scroll's full extent.
+          const cs = getComputedStyle(edge);
+          w = edge.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+          h2 = edge.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+        }
+        w = Math.round(w);
+        h2 = Math.round(h2);
         if (w <= 0 || h2 <= 0) return;
         const value = `${w}x${h2}`;
         if (lastSent.current === value) return;
@@ -1055,6 +1080,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       };
       report();
       const observer = new ResizeObserver(report);
+      if (edge) observer.observe(edge);
       observer.observe(el);
       return () => observer.disconnect();
     }, [geoId]);
@@ -1072,6 +1098,16 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   // which consumes them as padding and zeroes them for its descendants.
   // Content that is not a scroll is simply laid out inside the insets.
   const BAR_BACKGROUND = (dark) => dark ? "rgba(28,28,30,0.82)" : "rgba(249,249,249,0.82)";
+  // Apple's grouped palette (systemGroupedBackground,
+  // secondarySystemGroupedBackground, separator).
+  const GROUPED_BACKGROUND = (dark) => dark ? "#000000" : "#f2f2f7";
+  const CELL_BACKGROUND = (dark) => dark ? "#1c1c1e" : "#ffffff";
+  const SEPARATOR = (dark) => dark ? "rgba(84,84,88,0.65)" : "rgba(60,60,67,0.29)";
+  const pageDark = () => document.documentElement.dataset.theme === "dark"
+    || (!!window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  // The list idiom the rows being rendered belong to ("insetGrouped" while
+  // a compact list's rows render, as on an iPhone; plain rows otherwise).
+  let currentListStyle = null;
   const INSET_TOP = "var(--uui-inset-top, 0px)";
   const INSET_BOTTOM = "var(--uui-inset-bottom, 0px)";
   const edgeScrolls = new WeakSet();
@@ -1486,8 +1522,18 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       const target = edgeScroll(n.ch[(n.params || {}).inset === "top" ? 1 : 0]);
       if (target) { edgeScrolls.add(target); ownsEdgeScroll = true; }
     }
-    let kids = (n.ch || []).map((c, i) =>
-      render(c, `${i}:${c.k}${c.axis || ""}${c.view || ""}`, childAxis));
+    // A compact list renders inset-grouped (iPhone); its rows read the
+    // style while they render.
+    const insetGrouped = n.k === "scroll" && !!(n.params || {}).list && window.innerWidth < 700;
+    const previousListStyle = currentListStyle;
+    if (insetGrouped) currentListStyle = "insetGrouped";
+    let kids;
+    try {
+      kids = (n.ch || []).map((c, i) =>
+        render(c, `${i}:${c.k}${c.axis || ""}${c.view || ""}`, childAxis));
+    } finally {
+      currentListStyle = previousListStyle;
+    }
     if (tabPill) pendingTabPill = null;
 
     switch (n.k) {
@@ -1580,7 +1626,15 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           s.scrollPaddingTop = INSET_TOP;
           s.scrollPaddingBottom = INSET_BOTTOM;
           s.boxSizing = "border-box";
+          props["data-edge-scroll"] = "1";
           kids = insetsEnd("insets-end", kids);
+        }
+        if (insetGrouped) {
+          const dark = pageDark();
+          s.background = GROUPED_BACKGROUND(dark);
+          s["--uui-cell-bg"] = CELL_BACKGROUND(dark);
+          s["--uui-separator"] = SEPARATOR(dark);
+          kids = h("div", { key: "grouped", className: "uui-ig" }, kids);
         }
         // `.scrollDismissesKeyboard(.immediately / .interactively)`: a scroll
         // (or a touch drag) blurs the focused field, closing the soft keyboard.
@@ -1752,7 +1806,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           s.minHeight = 44;
           s.boxSizing = "border-box";
           s.justifyContent = "center";
-          s.borderBottom = "1px solid rgba(120,120,128,0.2)";
+          if (currentListStyle === "insetGrouped") {
+            props.className = ((props.className || "") + " uui-ig-row").trim();
+          } else {
+            s.borderBottom = "1px solid rgba(120,120,128,0.2)";
+          }
+        }
+        if ((n.params || {}).cell === "header" && currentListStyle === "insetGrouped") {
+          props.className = ((props.className || "") + " uui-ig-header").trim();
         }
         // A GeometryReader wrapper: measure the box the host actually laid
         // out and report it back ("<w>x<h>" on the `.geo` id), so the guest
