@@ -475,6 +475,39 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, label)));
   }
 
+  // The centre slot for a `.principal` view of the app's own. Taller than
+  // the bar, it is centred on the bar's row and may hang above it — into
+  // the status-bar area on a phone. In a plain browser tab there is nothing
+  // above the page, so an overhang past the top is pushed down to the edge
+  // (the pill below keeps its overlap).
+  function PrincipalSlot({ dark, children }) {
+    const ref = R.useRef(null);
+    const [shift, setShift] = R.useState(0);
+    R.useLayoutEffect(() => {
+      const el = ref.current;
+      if (!el) return undefined;
+      const measure = () => {
+        const view = el.firstElementChild;
+        if (!view) return;
+        const top = view.getBoundingClientRect().top - shift;
+        setShift(Math.max(0, Math.round(-top)));
+      };
+      measure();
+      const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+      if (observer) observer.observe(el);
+      return () => { if (observer) observer.disconnect(); };
+    });
+    return h("div", {
+      ref,
+      className: "uui-principal",
+      style: {
+        display: "inline-flex", alignItems: "center", justifyContent: "center", maxWidth: "100%", overflow: "visible", fontWeight: 400,
+        color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
+        transform: shift ? `translateY(${shift}px)` : undefined,
+      },
+    }, children);
+  }
+
   function navBar(n, kids) {
     const p = n.params || {};
     const dark = p.dark === "1";
@@ -581,7 +614,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
             h("span", { style: { fontSize: 12, fontWeight: 400, opacity: 0.6 } }, p.subtitle))
         : principal >= 0 && p.principalContent === "1" && (n.principalView || (kids && kids.length))
         // `.principal` with a view of its own: drawn as the app made it.
-        ? h("div", { key: "principal", className: "uui-principal", style: { display: "inline-flex", alignItems: "center", justifyContent: "center", maxWidth: "100%", overflow: "visible", fontWeight: 400, color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)" } }, n.principalView || kids[0])
+        ? h(PrincipalSlot, { key: "principal", dark }, n.principalView || kids[0])
         : principal >= 0
         // `.principal`: a title-styled button (the name, an avatar), no pill.
         ? trailingItem(principal, {
