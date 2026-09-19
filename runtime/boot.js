@@ -62,10 +62,17 @@ export async function boot({
     // bars stay and only the content between them shrinks (the iOS shape).
     if (window.visualViewport && canvas.parentElement === document.body) {
       const viewport = window.visualViewport;
+      // The surface follows the keyboard both ways with the same easing
+      // (Safari animates the viewport in, not out), and the home-indicator
+      // inset is dropped while the keyboard covers it — nothing but the
+      // page's background sits between the composer and the keys.
+      treeContainer.style.transition = "height 0.25s ease-out, top 0.25s ease-out";
       const fit = () => {
+        const keyboardUp = viewport.height < window.innerHeight - 120;
         treeContainer.style.top = `${Math.max(0, viewport.offsetTop)}px`;
         treeContainer.style.height = `${Math.round(viewport.height)}px`;
         treeContainer.style.bottom = "auto";
+        treeContainer.style.setProperty("--uui-safe-bottom", keyboardUp ? "0px" : "env(safe-area-inset-bottom, 0px)");
         if (window.scrollY) window.scrollTo(0, 0);
       };
       viewport.addEventListener("resize", fit);

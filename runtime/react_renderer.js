@@ -483,9 +483,10 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     const bar = {
       display: "flex", alignItems: "center", width: "100%", height: desktop ? 52 : 44, flex: "none",
       boxSizing: "border-box", padding: "0 8px",
-      background: largeShowing ? "transparent" : (dark ? "rgba(28,28,30,0.94)" : "rgba(249,249,249,0.94)"),
-      backdropFilter: largeShowing ? "none" : "blur(8px)",
-      borderBottom: largeShowing ? "none" : `1px solid ${dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
+      // Transparent, no hairline: the bar is its buttons and title over the
+      // content on every canvas (Logan's call for the web apps); a principal
+      // view may reach above or below the row.
+      background: "transparent", overflow: "visible",
       color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
       fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
     };
@@ -663,9 +664,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       rows.push(h(pinned ? "div" : R.Fragment, pinned ? {
         key: "bar",
         style: {
-          position: "absolute", top: 0, left: 0, right: 0, zIndex: 5,
+          position: "absolute", top: 0, left: 0, right: 0, zIndex: 5, overflow: "visible",
           paddingTop: "env(safe-area-inset-top, 0px)", boxSizing: "border-box",
-          ...(inline ? { background: BAR_BACKGROUND(dark), backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" } : {}),
+          // No fill, no hairline — but content scrolling under the bar is
+          // frosted so the title and buttons stay legible (the scroll-edge
+          // effect), on every canvas.
+          backdropFilter: "blur(18px) saturate(1.3)", WebkitBackdropFilter: "blur(18px) saturate(1.3)",
         },
       } : { key: "bar" }, navBar({
         edit: n.edit,
@@ -1705,7 +1709,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           display: "flex", flexDirection: "column", alignItems: "stretch",
           transform: shown ? `translateY(${dragY}px)` : "translateY(100%)",
           transition: drag.current.dragging ? "none" : "transform 0.24s cubic-bezier(0.2,0.8,0.2,1)",
-          paddingBottom: greedy ? 0 : "calc(16px + env(safe-area-inset-bottom, 0px))",
+          paddingBottom: greedy ? 0 : "calc(16px + var(--uui-safe-bottom, env(safe-area-inset-bottom, 0px)))",
         }
       : {
           background: panelBg, borderRadius: 14, boxSizing: "border-box",
@@ -1735,7 +1739,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       style: panelStyle,
     }, grabber ? h("div", { key: "grab", style: { alignSelf: "center", width: 36, height: 5, borderRadius: 3, background: "rgba(120,120,128,0.45)", margin: "6px 0 2px", flex: "none" } }) : null,
        // The body keeps the home indicator's inset below its last row.
-       h("div", { key: "body", className: "uui-sheet-body", style: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", alignItems: "stretch", overflowY: greedy ? "hidden" : "auto", "--uui-inset-bottom": compact ? "env(safe-area-inset-bottom, 0px)" : "0px" } }, kids)));
+       h("div", { key: "body", className: "uui-sheet-body", style: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", alignItems: "stretch", overflowY: greedy ? "hidden" : "auto", "--uui-inset-bottom": compact ? "var(--uui-safe-bottom, env(safe-area-inset-bottom, 0px))" : "0px" } }, kids)));
   }
 
   let renderDepth = 0;
@@ -2093,8 +2097,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
                 key: "topbar",
                 style: {
                   display: "flex", justifyContent: "center", alignItems: "center", flex: "none",
-                  padding: "6px 12px", background: dark ? "rgba(28,28,30,0.94)" : "rgba(249,249,249,0.94)",
-                  borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
+                  padding: "6px 12px", background: "transparent",
                 },
               }, h(Segmented, {
                 options: labels, selected: Number(p.selected || 0), dark, compact: true,
