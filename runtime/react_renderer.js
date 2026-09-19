@@ -124,8 +124,10 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       s.paddingBottom = n.padding[2];
       s.paddingRight = n.padding[3];
     }
-    if (n.width != null) s.width = n.width;
-    if (n.height != null) s.height = n.height;
+    // A fixed frame never shrinks under row or column pressure (SwiftUI
+    // gives a `.frame(width:)` its width; the flexible siblings give way).
+    if (n.width != null) { s.width = n.width; s.minWidth = n.width; s.flexShrink = 0; }
+    if (n.height != null) { s.height = n.height; s.minHeight = n.height; }
     if (n.bg) s.background = rgba(n.bg);
     const gradient = gradientCSS(n);
     if (gradient) s.background = gradient;
@@ -1753,6 +1755,22 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }
   }
 
+  // A node's fixed frame, looking through wrapper boxes (a `.frame(width:)`
+  // under an `.overlay` or a tap) — the minimum a stack layer keeps.
+  function fixedSize(n) {
+    let node = n;
+    for (let depth = 0; node && depth < 6; depth++) {
+      const w = node.width != null ? node.width : undefined;
+      const h2 = node.height != null ? node.height : undefined;
+      if (w != null || h2 != null) return { w: w != null ? w : 0, h: h2 != null ? h2 : 0 };
+      if (node.k !== "box") break;
+      const content = (node.ch || []).filter((c) => !(c.params && c.params.layer));
+      if (content.length !== 1) break;
+      node = content[0];
+    }
+    return { w: 0, h: 0 };
+  }
+
   function renderNode(n, key, parentAxis) {
     if (n.k === "hostView" && (n.view === "navbar" || n.view === "tabbar")) {
       // Bars ignore box decorations; they are chrome rows. A bar's child is
@@ -1889,13 +1907,18 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           const place = `${alignCSS[n.alignV] || "center"} ${alignCSS[n.alignH] || "center"}`;
           s.display = "grid";
           s.placeItems = "stretch";
+          // Never narrower than its layers' minimum (a 44pt avatar under a
+          // presence dot kept its size while the row squeezed the stack).
+          s.minWidth = "min-content";
           kids = kids.map((kid, i) => {
             const c = (n.ch || [])[i] || {};
             return h("div", {
               key: i,
               style: {
                 gridArea: "1 / 1", display: "grid", placeItems: place,
-                minWidth: 0, minHeight: 0,
+                // A fixed-size layer keeps its size as the stack's minimum
+                // (an avatar under a presence dot); flexible layers may shrink.
+                minWidth: fixedSize(c).w, minHeight: fixedSize(c).h,
                 width: c.growW ? "100%" : undefined,
                 height: c.growH ? "100%" : undefined,
                 // Each layer stacks above the previous even when an earlier
@@ -1909,7 +1932,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
               },
             }, h("div", {
               style: {
-                pointerEvents: "auto", display: "flex", minWidth: 0, minHeight: 0,
+                pointerEvents: "auto", display: "flex",
+                minWidth: fixedSize(c).w, minHeight: fixedSize(c).h,
                 width: c.growW ? "100%" : undefined, height: c.growH ? "100%" : undefined,
               },
             }, kid));
