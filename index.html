@@ -49,7 +49,7 @@
   <script src="./assets/jsqr.js?v=bc40c8a1"></script>
   <script src="./assets/qr.js?v=8086a504"></script>
   <script type="module">
-    import { boot } from "./runtime/boot.js?v=0fc1413e";
+    import { boot } from "./runtime/boot.js?v=9657dc45";
     import { Dependencies } from "./app_bridge.js?v=07934241";
 
     // The host half of the client: WebRTC, localStorage, and the URL. It moves
@@ -450,7 +450,7 @@
       // Local development serves without cache headers, and a stale cached
       // module quietly runs old client logic against new HTML. Bust it there;
       // the published site relies on normal HTTP caching.
-      wasmURL: "./app.wasm?v=4010553403" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
+      wasmURL: "./app.wasm?v=903252937" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
       rendererName: new URLSearchParams(location.search).get("renderer") || "react",
       dependencies: { host: Dependencies.convoHost(() => host) },
     }).then((result) => {

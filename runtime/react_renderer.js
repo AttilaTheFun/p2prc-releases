@@ -489,8 +489,22 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       const measure = () => {
         const view = el.firstElementChild;
         if (!view) return;
-        const top = view.getBoundingClientRect().top - shift;
-        setShift(Math.max(0, Math.round(-top)));
+        // The view's painted top: its own box or, when an `.offset` inside
+        // moves the content, the highest of its descendants (the box's rect
+        // does not include a child's translate).
+        // Wrapper boxes paint nothing: only leaves and filled boxes count.
+        let top = Infinity;
+        const nodes = view.querySelectorAll("*");
+        for (let i = 0; i < nodes.length && i < 400; i++) {
+          const node = nodes[i];
+          const r = node.getBoundingClientRect();
+          if (r.height <= 0 || r.top >= top) continue;
+          if (node.children.length === 0) { top = r.top; continue; }
+          const cs = getComputedStyle(node);
+          if ((cs.backgroundColor && cs.backgroundColor !== "rgba(0, 0, 0, 0)") || (cs.borderTopWidth && cs.borderTopWidth !== "0px") || cs.backgroundImage !== "none") top = r.top;
+        }
+        if (top === Infinity) top = view.getBoundingClientRect().top;
+        setShift(Math.max(0, Math.round(-(top - shift))));
       };
       measure();
       const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
