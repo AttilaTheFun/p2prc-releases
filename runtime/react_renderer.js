@@ -80,6 +80,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       "html{overscroll-behavior:none;overflow:hidden;height:100%}" +
       "body{overscroll-behavior:none;overflow:hidden;position:fixed;inset:0;width:100%;height:100dvh;margin:0}" +
       "[data-edge-scroll],.uui-sheet-body,[data-uui-scroll]{overscroll-behavior:contain}" +
+      ".uui-plain-row{position:relative}" +
+      ".uui-plain-row::after{content:'';position:absolute;left:16px;right:0;bottom:0;height:1px;background:rgba(120,120,128,0.3)}" +
+      ".uui-plain-row:last-child::after{display:none}" +
+      // The page is the app's ground: black or white, the safe areas too.
+      "body{background:#fff;color-scheme:light dark}" +
+      "@media (prefers-color-scheme: dark){body{background:#000}}" +
       ".uui-sb-row{transition:background-color 0.1s}" +
       ".uui-sb-row:hover:not(.uui-sb-selected){background:rgba(120,120,128,0.12)}" +
       ".uui-sb-selected,.uui-sb-selected *{color:#fff !important}" +
@@ -530,7 +536,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // content (iOS); it takes its material once the title collapses.
     const largeShowing = p.large === "1" && Number(p.inlineAlpha || 1) < 0.5;
     const bar = {
-      display: "flex", alignItems: "center", width: "100%", height: desktop ? 52 : 44, flex: "none",
+      display: "flex", alignItems: "center", width: "100%", height: 52, flex: "none",
       boxSizing: "border-box", padding: "0 8px",
       // Transparent, no hairline: the bar is its buttons and title over the
       // content on every canvas (Logan's call for the web apps); a principal
@@ -549,9 +555,15 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       minWidth: 28, lineHeight: "18px", margin: "0 1px",
       fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
     } : {
-      border: "none", background: "rgba(10,132,255,0.12)", color: "var(--uui-tint, #0a84ff)", fontSize: 15,
-      fontWeight: 500, cursor: "pointer", padding: "5px 11px", borderRadius: 9, flex: "0 0 auto",
-      minWidth: 34, lineHeight: "20px", margin: "0 2px",
+      // iOS 26's shape: 44pt capsules and circles, translucent with a
+      // hairline, in the label colour (no liquid glass).
+      border: `1px solid ${dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.08)"}`,
+      background: dark ? "rgba(60,60,67,0.55)" : "rgba(255,255,255,0.72)",
+      backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+      color: dark ? "rgba(255,255,255,0.95)" : "rgba(0,0,0,0.88)", fontSize: 17,
+      fontWeight: 500, cursor: "pointer", padding: "0 17px", borderRadius: 22, flex: "0 0 auto",
+      minWidth: 44, height: 44, lineHeight: "42px", margin: "0 2px", boxSizing: "border-box",
+      boxShadow: dark ? "0 1px 6px rgba(0,0,0,0.25)" : "0 1px 6px rgba(0,0,0,0.08)",
       fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
     };
     // Toolbar items (`ToolbarItem(placement:)`): newline-joined title lists.
@@ -574,8 +586,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // An item whose label is a symbol: a 36px circle with the icon.
     const circle = desktop
       ? { ...button, width: 30, height: 28, minWidth: 30, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }
-      : { ...button, width: 36, height: 36, minWidth: 36, padding: 0, borderRadius: 18, display: "inline-flex", alignItems: "center", justifyContent: "center" };
-    const itemContent = (title, symbol) => (symbol && SYMBOLS[symbol]) ? symbolSVG(h, symbol, 17, "currentColor", 600, { verticalAlign: "0" }) : title;
+      : { ...button, width: 44, height: 44, minWidth: 44, padding: 0, borderRadius: 22, display: "inline-flex", alignItems: "center", justifyContent: "center" };
+    const itemContent = (title, symbol) => (symbol && SYMBOLS[symbol]) ? symbolSVG(h, symbol, desktop ? 17 : 21, "currentColor", 600, { verticalAlign: "0" }) : title;
     const itemStyle = (symbol) => (symbol && SYMBOLS[symbol]) ? circle : button;
     const trailingItem = (i, extra) => segments[i] && segments[i].length
       ? h(Segmented, {
@@ -596,8 +608,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           ? h("span", { key: "lt", style: { fontWeight: 600, fontSize: 15, padding: "0 6px", whiteSpace: "nowrap" } }, p.title)
           : null,
         p.back === "1"
-          ? h("button", { key: "back", className: "uui-bar-item", style: { ...button, display: "inline-flex", alignItems: "center", gap: 2, paddingLeft: 6 }, onClick: () => (n.onBack ? n.onBack() : sendEvent(n.edit, "back")) },
-              symbolSVG(h, "chevron.left", 17, "currentColor", 600, { verticalAlign: "0" }), "Back")
+          ? h("button", { key: "back", className: "uui-bar-item", style: { ...button, display: "inline-flex", alignItems: "center", gap: 2, paddingLeft: desktop ? 6 : 10, paddingRight: desktop ? 9 : 14 }, onClick: () => (n.onBack ? n.onBack() : sendEvent(n.edit, "back")) },
+              symbolSVG(h, "chevron.left", desktop ? 17 : 20, "currentColor", 600, { verticalAlign: "0" }), "Back")
           : null,
         leading.map((title, i) => h("button", {
           key: `l${i}`, className: "uui-bar-item", style: itemStyle(leadingSymbols[i]), "aria-label": leadingLabels[i] || undefined,
@@ -799,7 +811,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         display: "flex", flexDirection: "column", flex: 1, position: "relative",
         minHeight: 0, minWidth: 0, alignSelf: "stretch", width: "100%",
         color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
-        ...(pinned ? { "--uui-inset-top": "calc(44px + env(safe-area-inset-top, 0px))" } : {}),
+        ...(pinned ? { "--uui-inset-top": "calc(52px + env(safe-area-inset-top, 0px))" } : {}),
       },
     }, rows);
   }
@@ -1924,10 +1936,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // A compact list renders inset-grouped (iPhone); its rows read the
     // style while they render.
     const isList = n.k === "scroll" && !!(n.params || {}).list;
-    const insetGrouped = isList && !isDesktop();
+    // `.listStyle(.plain)`: rows straight on the page with hairlines (the
+    // Messages inbox); otherwise a phone shows the grouped card.
+    const plainList = isList && !isDesktop() && (n.params || {}).listStyle === "plain";
+    const insetGrouped = isList && !isDesktop() && !plainList;
     const sidebarList = isList && isDesktop() && inSidebar > 0;
     const previousListStyle = currentListStyle;
     if (insetGrouped) currentListStyle = "insetGrouped";
+    else if (plainList) currentListStyle = "plain";
     else if (sidebarList) currentListStyle = "sidebar";
     const isSplit = n.k === "hostView" && n.view === "navsplit";
     let kids;
@@ -2254,10 +2270,16 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
             s.justifyContent = "center";
             if (currentListStyle === "insetGrouped") {
               props.className = ((props.className || "") + " uui-ig-row").trim();
+              if (selected) s.background = "rgba(10,132,255,0.18)";
+            } else if (currentListStyle === "plain") {
+              // Messages' inbox: the row on the page, a hairline from the
+              // text column, a gray highlight for the selected row.
+              props.className = ((props.className || "") + " uui-plain-row").trim();
+              if (selected) s.background = "rgba(120,120,128,0.22)";
             } else {
               s.borderBottom = "1px solid rgba(120,120,128,0.2)";
+              if (selected) s.background = "rgba(10,132,255,0.18)";
             }
-            if (selected) s.background = "rgba(10,132,255,0.18)";
           }
         }
         if ((n.params || {}).cell === "header") {

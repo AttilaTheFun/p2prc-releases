@@ -4,15 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#f9f9f9" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+  <!-- The page ground's colour (Safari tints the status-bar area with it;
+       the bars are transparent, so it must match the ground, not a bar). -->
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <!-- Added to the Home Screen, the page runs without Safari's chrome (no
        URL bar riding up with the keyboard); the status bar area is ours. -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Convo">
-  <link rel="manifest" href="./assets/manifest.webmanifest?v=557c7f4e">
+  <link rel="manifest" href="./assets/manifest.webmanifest?v=1a012420">
   <!-- Seed signaling servers (docs/architecture.md §4): configuration the
        client health-checks like any other server, never trusted outright. -->
   <meta name="convo-seeds" content="https://convo-node-1-667126654079.us-central1.run.app,https://convo-node-2-667126654079.us-central1.run.app,https://convo-node-3-667126654079.us-central1.run.app">
@@ -49,7 +51,7 @@
   <script src="./assets/jsqr.js?v=bc40c8a1"></script>
   <script src="./assets/qr.js?v=8086a504"></script>
   <script type="module">
-    import { boot } from "./runtime/boot.js?v=9657dc45";
+    import { boot } from "./runtime/boot.js?v=3f0fbfcf";
     import { Dependencies } from "./app_bridge.js?v=07934241";
 
     // The host half of the client: WebRTC, localStorage, and the URL. It moves
@@ -450,7 +452,7 @@
       // Local development serves without cache headers, and a stale cached
       // module quietly runs old client logic against new HTML. Bust it there;
       // the published site relies on normal HTTP caching.
-      wasmURL: "./app.wasm?v=903252937" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
+      wasmURL: "./app.wasm?v=125818713" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
       rendererName: new URLSearchParams(location.search).get("renderer") || "react",
       dependencies: { host: Dependencies.convoHost(() => host) },
     }).then((result) => {
