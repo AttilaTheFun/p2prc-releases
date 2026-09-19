@@ -12,6 +12,26 @@
 // Uses the React 18 UMD globals (window.React / window.ReactDOM), served
 // from the hermetic @react_umd repositories next to this bundle.
 
+import { SYMBOLS } from "./symbols.js";
+
+/// An SF Symbol drawn from the portable table as an inline SVG sized to
+/// the text it stands in (an `Image(systemName:)` is a text node carrying
+/// `params.symbol`); unknown names keep the guest's fallback glyph.
+function symbolSVG(h, name, size, color, weight, extraStyle) {
+  const entry = SYMBOLS[name];
+  if (!entry) return null;
+  const px = Math.round((Number(size) || 17) * 1.15);
+  const bold = Number(weight) >= 600;
+  return h("svg", {
+    viewBox: "0 0 24 24", width: px, height: px, "aria-hidden": "true",
+    fill: entry.fill ? "currentColor" : "none", stroke: "currentColor",
+    strokeWidth: entry.fill ? 1.5 : (bold ? 2.4 : 2), strokeLinecap: "round", strokeLinejoin: "round",
+    style: { display: "inline-block", verticalAlign: "-0.2em", color, flexShrink: 0, ...extraStyle },
+  }, h("path", { key: "d", d: entry.d }),
+     // A filled badge's glyph, in the colour the fill contrasts with.
+     entry.inner ? h("path", { key: "i", d: entry.inner, fill: "none", stroke: "var(--uui-symbol-contrast, #fff)", strokeWidth: 2.2 }) : null);
+}
+
 export function createReactTreeRenderer({ container, sendEvent, assetBase = "assets/", mapSurface = null }) {
   const R = window.React;
   const SYSTEM_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
@@ -28,6 +48,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       "border:2.5px solid rgba(120,120,128,0.3);border-top-color:rgba(120,120,128,0.9);" +
       "animation:uui-spin 0.8s linear infinite}" +
       ".uui-tap{transition:background-color 0.12s}" +
+      ".uui-bar-item:hover{background:rgba(120,120,128,0.16) !important}" +
+      ".uui-bar-item:active{background:rgba(120,120,128,0.26) !important}" +
       ".uui-tap:active{background-color:rgba(120,120,128,0.18) !important}" +
       ".uui-switch{appearance:none;-webkit-appearance:none;width:44px;height:26px;flex:none;" +
       "border-radius:13px;background:rgba(120,120,128,0.35);position:relative;outline:none;" +
@@ -45,7 +67,21 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       ".uui-ig-row:first-child,.uui-ig-header+.uui-ig-row{border-top-left-radius:10px;border-top-right-radius:10px}" +
       ".uui-ig-row:last-child,.uui-ig-row:has(+ .uui-ig-header){border-bottom-left-radius:10px;border-bottom-right-radius:10px}" +
       ".uui-ig-row:last-child::after,.uui-ig-row:has(+ .uui-ig-header)::after{display:none}" +
-      ".uui-ig-header{padding:20px 16px 7px;font-size:13px;text-transform:uppercase;letter-spacing:0.02em;color:rgba(120,120,128,0.9)}";
+      // Headers as iOS 26 draws them: sentence case, secondary, a step
+      // smaller than the rows.
+      ".uui-ig-header{padding:22px 16px 8px;font-size:15px;color:rgba(120,120,128,0.95)}" +
+      // Sheet content spans the panel; its own stacks keep their alignment.
+      ".uui-sheet-body>*{align-self:stretch}" +
+      ".uui-principal button{color:inherit}" +
+      // macOS sidebar rows and headers.
+      ".uui-sb-row{transition:background-color 0.1s}" +
+      ".uui-sb-row:hover:not(.uui-sb-selected){background:rgba(120,120,128,0.12)}" +
+      ".uui-sb-selected,.uui-sb-selected *{color:#fff !important}" +
+      ".uui-sb-selected svg{color:#fff !important}" +
+      ".uui-sb-header{padding:14px 20px 4px;font-size:11px;font-weight:600;color:rgba(120,120,128,0.9)}" +
+      // Thin, overlay-like scrollbars everywhere (the always-on dark
+      // scrollbar looked like a control).
+      "*{scrollbar-width:thin;scrollbar-color:rgba(120,120,128,0.45) transparent}";
     document.head.appendChild(style);
   }
 
@@ -431,21 +467,32 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, label)));
   }
 
-  function navBar(n) {
+  function navBar(n, kids) {
     const p = n.params || {};
     const dark = p.dark === "1";
+    const desktop = isDesktop();
+    // Under a visible large title the bar is just its buttons over the
+    // content (iOS); it takes its material once the title collapses.
+    const largeShowing = p.large === "1" && Number(p.inlineAlpha || 1) < 0.5;
     const bar = {
-      display: "flex", alignItems: "center", width: "100%", height: 44, flex: "none",
+      display: "flex", alignItems: "center", width: "100%", height: desktop ? 52 : 44, flex: "none",
       boxSizing: "border-box", padding: "0 8px",
-      background: dark ? "rgba(28,28,30,0.94)" : "rgba(249,249,249,0.94)",
-      backdropFilter: "blur(8px)",
-      borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
+      background: largeShowing ? "transparent" : (dark ? "rgba(28,28,30,0.94)" : "rgba(249,249,249,0.94)"),
+      backdropFilter: largeShowing ? "none" : "blur(8px)",
+      borderBottom: largeShowing ? "none" : `1px solid ${dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"}`,
       color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
       fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
     };
     // Bar items read as tappable: a tinted pill (fill + radius), like a
     // bordered button, rather than a bare glyph.
-    const button = {
+    // Phone: tinted pills (a bordered button). Desktop: borderless
+    // monochrome items that tint on hover/press, the macOS toolbar's.
+    const button = desktop ? {
+      border: "none", background: "none", color: dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.75)", fontSize: 13,
+      fontWeight: 500, cursor: "pointer", padding: "5px 9px", borderRadius: 6, flex: "0 0 auto",
+      minWidth: 28, lineHeight: "18px", margin: "0 1px",
+      fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
+    } : {
       border: "none", background: "rgba(10,132,255,0.12)", color: "var(--uui-tint, #0a84ff)", fontSize: 15,
       fontWeight: 500, cursor: "pointer", padding: "5px 11px", borderRadius: 9, flex: "0 0 auto",
       minWidth: 34, lineHeight: "20px", margin: "0 2px",
@@ -466,32 +513,46 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // like ✎ / ▶︎ read as "Edit" / "Run" to assistive tech and the tap tool).
     const leadingLabels = split("leadingLabels");
     const trailingLabels = split("trailingLabels");
+    const leadingSymbols = split("leadingSymbols");
+    const trailingSymbols = split("trailingSymbols");
+    // An item whose label is a symbol: a 36px circle with the icon.
+    const circle = desktop
+      ? { ...button, width: 30, height: 28, minWidth: 30, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }
+      : { ...button, width: 36, height: 36, minWidth: 36, padding: 0, borderRadius: 18, display: "inline-flex", alignItems: "center", justifyContent: "center" };
+    const itemContent = (title, symbol) => (symbol && SYMBOLS[symbol]) ? symbolSVG(h, symbol, 17, "currentColor", 600, { verticalAlign: "0" }) : title;
+    const itemStyle = (symbol) => (symbol && SYMBOLS[symbol]) ? circle : button;
     const trailingItem = (i, extra) => segments[i] && segments[i].length
       ? h(Segmented, {
           key: `t${i}`, options: segments[i], selected: segmentSelected[i] || 0, dark, compact: true,
           onSelect: (j) => sendEvent(n.edit, `segment:${i}:${j}`),
         })
       : h("button", {
-          key: `t${i}`,
+          key: `t${i}`, className: "uui-bar-item",
           "aria-label": trailingLabels[i] || undefined,
-          style: { ...button, ...(prominent[i] === "1" ? { fontWeight: 600 } : {}), ...(extra || {}) },
+          style: { ...itemStyle(trailingSymbols[i]), ...(prominent[i] === "1" ? { fontWeight: 600 } : {}), ...(extra || {}) },
           onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
-        }, trailing[i] || "");
+        }, itemContent(trailing[i] || "", trailingSymbols[i]));
     // Symmetric side clusters keep the title centered.
     const side = { display: "flex", alignItems: "center", minWidth: 64, flex: "0 0 auto" };
     return h("div", { style: bar },
       h("div", { style: side },
+        n.pill && desktop && p.title
+          ? h("span", { key: "lt", style: { fontWeight: 600, fontSize: 15, padding: "0 6px", whiteSpace: "nowrap" } }, p.title)
+          : null,
         p.back === "1"
-          ? h("button", { key: "back", style: button, onClick: () => (n.onBack ? n.onBack() : sendEvent(n.edit, "back")) }, "‹ Back")
+          ? h("button", { key: "back", className: "uui-bar-item", style: { ...button, display: "inline-flex", alignItems: "center", gap: 2, paddingLeft: 6 }, onClick: () => (n.onBack ? n.onBack() : sendEvent(n.edit, "back")) },
+              symbolSVG(h, "chevron.left", 17, "currentColor", 600, { verticalAlign: "0" }), "Back")
           : null,
         leading.map((title, i) => h("button", {
-          key: `l${i}`, style: button, "aria-label": leadingLabels[i] || undefined,
+          key: `l${i}`, className: "uui-bar-item", style: itemStyle(leadingSymbols[i]), "aria-label": leadingLabels[i] || undefined,
           onClick: () => sendEvent(n.edit, `leading:${i}`),
-        }, title))),
+        }, itemContent(title, leadingSymbols[i])))),
       h("div", {
         style: {
           flex: 1, textAlign: "center", fontWeight: 600, fontSize: 16,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          // A principal view of the app's own may hang below the bar (a name
+          // pill under an avatar): only words are clipped.
+          overflow: p.principalContent === "1" ? "visible" : "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           // Explicit shrinkability: overflow:hidden already zeroes the flex
           // minimum (the automatic min-size only applies to visible
           // overflow), but state it outright so a future overflow change
@@ -509,10 +570,13 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         ? h("div", { style: { display: "flex", flexDirection: "column", lineHeight: 1.15 } },
             h("span", null, p.title || ""),
             h("span", { style: { fontSize: 12, fontWeight: 400, opacity: 0.6 } }, p.subtitle))
+        : principal >= 0 && p.principalContent === "1" && (n.principalView || (kids && kids.length))
+        // `.principal` with a view of its own: drawn as the app made it.
+        ? h("div", { key: "principal", className: "uui-principal", style: { display: "inline-flex", alignItems: "center", justifyContent: "center", maxWidth: "100%", overflow: "visible", fontWeight: 400, color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)" } }, n.principalView || kids[0])
         : principal >= 0
+        // `.principal`: a title-styled button (the name, an avatar), no pill.
         ? trailingItem(principal, {
-            fontWeight: 600, fontSize: 15, padding: "4px 12px",
-            borderRadius: 14, background: dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)",
+            fontWeight: 600, fontSize: 16, padding: "4px 8px", borderRadius: 8, background: "none",
             color: dark ? "rgba(255,255,255,0.92)" : "rgba(0,0,0,0.85)",
           })
         : (p.title || "")),
@@ -574,7 +638,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }
     const dark = p.dark === "1";
     const depth = Number(p.depth || 0);
-    const inline = p.displayMode === "inline";
+    const inline = p.displayMode === "inline" || isDesktop();
     const leading = p.leading ? p.leading.split("\n") : [];
     const trailing = p.trailingItems ? p.trailingItems.split("\n") : [];
     // At its root inside a compact split view, this bar carries the split's
@@ -585,6 +649,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // stationary, extending into the top safe area, with its controls in
     // the 44pt row beneath it; the content flows under it with an inset.
     const pinned = showBar && navStackBarOnly(n);
+    // A second child is the `.principal` item's own view (the bar draws it).
+    const principalView = p.principalContent === "1" && kids && kids.length > 1 ? kids[kids.length - 1] : null;
+    if (principalView) kids = kids.slice(0, -1);
     const rows = [];
     if (showBar) {
       rows.push(h(pinned ? "div" : R.Fragment, pinned ? {
@@ -592,12 +659,13 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         style: {
           position: "absolute", top: 0, left: 0, right: 0, zIndex: 5,
           paddingTop: "env(safe-area-inset-top, 0px)", boxSizing: "border-box",
-          background: BAR_BACKGROUND(dark), backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+          ...(inline ? { background: BAR_BACKGROUND(dark), backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" } : {}),
         },
       } : { key: "bar" }, navBar({
         edit: n.edit,
         pill,
         onBack: splitBack,
+        principalView,
         params: {
           title: inline || !p.title ? (p.title || "") : "",
           subtitle: inline ? (p.subtitle || "") : "",
@@ -607,12 +675,18 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           trailingItems: p.trailingItems,
           leadingLabels: p.leadingLabels,
           trailingLabels: p.trailingLabels,
+          leadingSymbols: p.leadingSymbols,
+          trailingSymbols: p.trailingSymbols,
           principal: p.principal,
+          principalContent: p.principalContent,
           segments: p.segments,
           segmentSelected: p.segmentSelected,
           prominent: p.prominent,
         },
       })));
+    }
+    if (isDesktop() && p.displayMode !== "inline" && p.title && showBar) {
+      rows.push(h("div", { key: "topgap", style: { height: 12, flex: "none" } }));
     }
     if (!inline && p.title) {
       rows.push(h("div", {
@@ -943,6 +1017,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         width, flex: width == null ? 1 : "none",
         minWidth: width == null ? 0 : undefined,
         display: "flex", flexDirection: "column", minHeight: 0,
+        // A content-sized column root sits in the middle (SwiftUI centres a
+        // detail view that is not greedy); greedy roots still stretch.
+        alignItems: "center", justifyContent: "center",
         alignSelf: "stretch", background,
       },
     }, kid);
@@ -1105,8 +1182,17 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   const SEPARATOR = (dark) => dark ? "rgba(84,84,88,0.65)" : "rgba(60,60,67,0.29)";
   const pageDark = () => document.documentElement.dataset.theme === "dark"
     || (!!window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  // The web is a phone when narrow and a desktop when wide: narrow canvases
+  // take the iOS shapes (large titles, 44pt bars, inset-grouped lists,
+  // bottom sheets), wide ones the macOS shapes (an inline title in one
+  // 52px toolbar row, borderless bar buttons, the sidebar list style,
+  // content-sized sheets).
+  const isDesktop = () => window.innerWidth >= 700;
+  // How many split-view sidebar columns enclose the rows being rendered.
+  let inSidebar = 0;
   // The list idiom the rows being rendered belong to ("insetGrouped" while
-  // a compact list's rows render, as on an iPhone; plain rows otherwise).
+  // a compact list's rows render, as on an iPhone; "sidebar" in a wide
+  // split view's sidebar column; plain rows otherwise).
   let currentListStyle = null;
   const INSET_TOP = "var(--uui-inset-top, 0px)";
   const INSET_BOTTOM = "var(--uui-inset-bottom, 0px)";
@@ -1231,7 +1317,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   function hostView(n, props, kids) {
     const p = n.params || {};
     switch (n.view) {
-      case "navbar": return navBar(n);
+      case "navbar": return navBar(n, kids);
       case "tabbar": return tabBar(n);
       case "search":
         return h(TextInput, { n: { ...n, searchStyle: true, placeholder: p.prompt || "" } });
@@ -1252,11 +1338,22 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
             onSelect: (i) => sendEvent(n.edit, String(i)),
           });
         }
-        props.value = n.view === "picker" ? Number(n.v) || 0 : 0;
-        props.onChange = (e) => sendEvent(n.edit, String(e.target.selectedIndex));
-        props.style = { ...props.style, fontSize: 15, padding: "4px 8px" };
-        return h("select", props,
-          (n.options || []).map((label, i) => h("option", { key: i, value: i }, label)));
+        // A pop-up panel (the platform's menu shape), not a <select>: a
+        // Menu's options are its label then its actions; a picker's are
+        // its choices with the current one checked.
+        const isPicker = n.view === "picker";
+        const options = n.options || [];
+        const selected = isPicker ? Number(n.v) || 0 : -1;
+        const label = isPicker ? (options[selected] || "") : (options[0] || "Menu");
+        const items = isPicker
+          ? options.map((title, i) => ({ title, checked: i === selected, index: i }))
+          : options.slice(1).map((title, i) => ({ title, index: i + 1 }));
+        const openIt = (e) => { e.stopPropagation(); showPopMenu(e.currentTarget, items, (i) => sendEvent(n.edit, String(items[i].index))); };
+        return h("button", {
+          ...props, type: "button", onClick: openIt,
+          style: { ...props.style, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 15, padding: "6px 10px", borderRadius: 10,
+            border: "none", background: "rgba(120,120,128,0.14)", color: "inherit", fontFamily: MENU_FONT, cursor: "pointer" },
+        }, [h("span", { key: "l" }, label), h("span", { key: "c", style: { fontSize: 11, opacity: 0.7 } }, "⌃⌄")]);
       }
       case "datepicker":
         props.type = "date";
@@ -1336,6 +1433,174 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }
   }
 
+  // --- Pop-up menus -------------------------------------------------------
+  // One floating panel at a time, appended to the document (so it escapes
+  // any clipping ancestor), dismissed by a tap outside or Escape. Items:
+  // { title, symbol, destructive, checked }.
+  const MENU_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+  let openMenu = null;
+  function closePopMenu() {
+    if (openMenu) { openMenu.remove(); openMenu = null; }
+    document.removeEventListener("pointerdown", onOutsidePointer, true);
+    document.removeEventListener("keydown", onMenuKey, true);
+  }
+  function onOutsidePointer(e) { if (openMenu && !openMenu.contains(e.target)) closePopMenu(); }
+  function onMenuKey(e) { if (e.key === "Escape") closePopMenu(); }
+  function showPopMenu(anchor, items, onPick) {
+    closePopMenu();
+    const dark = document.documentElement.dataset.theme === "dark"
+      || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    const panel = document.createElement("div");
+    panel.setAttribute("role", "menu");
+    panel.style.cssText = "position:fixed;z-index:60;min-width:200px;max-width:320px;padding:6px 0;border-radius:13px;"
+      + "font-family:" + MENU_FONT + ";font-size:15px;overflow:hidden;"
+      + (dark ? "background:rgba(44,44,46,0.92);color:#fff;" : "background:rgba(250,250,250,0.92);color:#000;")
+      + "backdrop-filter:blur(30px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);"
+      + "box-shadow:0 8px 40px rgba(0,0,0,0.28),0 0 0 0.5px rgba(0,0,0,0.12);";
+    items.forEach((item, i) => {
+      const row = document.createElement("div");
+      row.setAttribute("role", "menuitem");
+      row.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;user-select:none;"
+        + (item.destructive ? "color:#ff3b30;" : "")
+        + (i > 0 ? (dark ? "border-top:0.5px solid rgba(255,255,255,0.12);" : "border-top:0.5px solid rgba(0,0,0,0.1);") : "");
+      const title = document.createElement("span");
+      title.style.cssText = "flex:1;";
+      title.textContent = item.title;
+      row.appendChild(title);
+      if (item.checked) { const check = document.createElement("span"); check.textContent = "✓"; check.style.cssText = "font-weight:600;"; row.appendChild(check); }
+      else if (item.symbol) { const icon = symbolElement(item.symbol, 18); if (icon) { icon.style.opacity = "0.8"; row.appendChild(icon); } }
+      row.onpointerenter = () => { row.style.background = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"; };
+      row.onpointerleave = () => { row.style.background = ""; };
+      row.onclick = (e) => { e.stopPropagation(); closePopMenu(); onPick(i); };
+      panel.appendChild(row);
+    });
+    document.body.appendChild(panel);
+    // Below the anchor (or at the pointer), kept on screen.
+    const r = anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y };
+    const w = panel.offsetWidth, hgt = panel.offsetHeight;
+    let x = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+    let y = r.bottom + 6;
+    if (y + hgt > window.innerHeight - 8) y = Math.max(8, r.top - hgt - 6);
+    panel.style.left = x + "px"; panel.style.top = y + "px";
+    openMenu = panel;
+    setTimeout(() => {
+      document.addEventListener("pointerdown", onOutsidePointer, true);
+      document.addEventListener("keydown", onMenuKey, true);
+    }, 0);
+  }
+  function symbolGlyph(name) {
+    const map = { "trash": "🗑", "pencil": "✎", "archivebox": "🗄", "square.and.pencil": "✎", "tray.and.arrow.up": "⤴", "xmark.circle": "⊗", "doc.on.doc": "⧉", "arrow.clockwise": "↻", "checkmark": "✓" };
+    return map[name] || "";
+  }
+  /// A symbol as a detached SVG element (for the imperative pop-up panel).
+  function symbolElement(name, size, color) {
+    const entry = SYMBOLS[name];
+    if (!entry) return null;
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("width", size); svg.setAttribute("height", size);
+    svg.setAttribute("fill", entry.fill ? "currentColor" : "none"); svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", entry.fill ? "1.5" : "2"); svg.setAttribute("stroke-linecap", "round"); svg.setAttribute("stroke-linejoin", "round");
+    svg.style.cssText = "display:block;flex-shrink:0;" + (color ? "color:" + color + ";" : "");
+    const path = document.createElementNS(ns, "path"); path.setAttribute("d", entry.d); svg.appendChild(path);
+    if (entry.inner) { const inner = document.createElementNS(ns, "path"); inner.setAttribute("d", entry.inner); inner.setAttribute("fill", "none"); inner.setAttribute("stroke", "#fff"); inner.setAttribute("stroke-width", "2.2"); svg.appendChild(inner); }
+    return svg;
+  }
+  /// Row actions as encoded by the guest: index␞title␞symbol␞d? per item, ␟ between.
+  function decodeRowActions(text) {
+    return String(text || "").split("\u001f").filter(Boolean).map((part) => {
+      const [index, title, symbol, flag] = part.split("\u001e");
+      return { index: Number(index), title, symbol, destructive: flag === "d" };
+    });
+  }
+  /// Long press (450 ms, still) or a secondary click opens the row's menu.
+  function attachContextMenu(props, n) {
+    const items = decodeRowActions(n.params.ctxitems);
+    const open = (x, y) => showPopMenu({ x, y }, items, (i) => sendEvent(n.params.ctxmenu, String(items[i].index)));
+    const prevDown = props.onPointerDown, prevUp = props.onPointerUp, prevClick = props.onClick;
+    let timer = null, fired = false, startX = 0, startY = 0;
+    props.onContextMenu = (e) => { e.preventDefault(); e.stopPropagation(); open(e.clientX, e.clientY); };
+    props.onPointerDown = (e) => {
+      if (prevDown) prevDown(e);
+      if (e.button !== 0) return;
+      fired = false; startX = e.clientX; startY = e.clientY;
+      timer = setTimeout(() => { fired = true; open(startX, startY + 8); }, 450);
+    };
+    props.onPointerMove = (e) => { if (timer && (Math.abs(e.clientX - startX) > 8 || Math.abs(e.clientY - startY) > 8)) { clearTimeout(timer); timer = null; } };
+    const end = (e) => { if (timer) { clearTimeout(timer); timer = null; } if (prevUp) prevUp(e); };
+    props.onPointerUp = end;
+    props.onPointerCancel = end;
+    props.onClick = (e) => { if (fired) { fired = false; e.stopPropagation(); e.preventDefault(); return; } if (prevClick) prevClick(e); };
+    props.style = { ...props.style, WebkitTouchCallout: "none", userSelect: "none" };
+  }
+
+  // Swipe actions on a list row: the content slides with a horizontal drag
+  // and the buttons show in the space it leaves; a full swipe performs the
+  // first one. Rows spring back on release short of halfway.
+  function SwipeRow({ n, divProps, children }) {
+    const leading = decodeRowActions((n.params || {}).swipeLeading);
+    const trailing = decodeRowActions((n.params || {}).swipeTrailing);
+    const full = (n.params || {}).swipeFull === "1";
+    const [dx, setDx] = R.useState(0);
+    const drag = R.useRef({ active: false, x: 0, y: 0, decided: false, horizontal: false });
+    const width = 84;
+    const perform = (item) => { setDx(0); sendEvent(n.params.swipe, String(item.index)); };
+    const onDown = (e) => { if (e.pointerType === "mouse" && e.button !== 0) return; drag.current = { active: true, x: e.clientX, y: e.clientY, decided: false, horizontal: false, base: dx }; };
+    const onMove = (e) => {
+      const d = drag.current; if (!d.active) return;
+      const mx = e.clientX - d.x, my = e.clientY - d.y;
+      if (!d.decided) { if (Math.abs(mx) < 6 && Math.abs(my) < 6) return; d.decided = true; d.horizontal = Math.abs(mx) > Math.abs(my); if (d.horizontal) e.currentTarget.setPointerCapture(e.pointerId); }
+      if (!d.horizontal) return;
+      let next = d.base + mx;
+      if (next < 0 && !trailing.length) next = 0;
+      if (next > 0 && !leading.length) next = 0;
+      setDx(next);
+    };
+    const onUp = (e) => {
+      const d = drag.current; if (!d.active) return; d.active = false;
+      const rowWidth = e.currentTarget.getBoundingClientRect().width;
+      if (dx < 0 && trailing.length) {
+        if (full && -dx > rowWidth * 0.6) { perform(trailing[0]); return; }
+        setDx(-dx > width * trailing.length * 0.5 ? -width * trailing.length : 0);
+      } else if (dx > 0 && leading.length) {
+        if (full && dx > rowWidth * 0.6) { perform(leading[0]); return; }
+        setDx(dx > width * leading.length * 0.5 ? width * leading.length : 0);
+      } else setDx(0);
+    };
+    const button = (item, i, side) => h("div", {
+      key: side + i,
+      onClick: (e) => { e.stopPropagation(); perform(item); },
+      style: { width, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, color: "#fff", fontFamily: MENU_FONT, fontSize: 13, cursor: "pointer",
+        background: item.destructive ? "#ff3b30" : (i === 0 ? (side === "t" ? "#ff9500" : "#34c759") : "#8e8e93") },
+    }, [item.symbol ? (symbolSVG(h, item.symbol, 18, "#fff", 400, { verticalAlign: "0" }) || h("span", { key: "g", style: { fontSize: 18 } }, symbolGlyph(item.symbol))) : null, h("span", { key: "t" }, item.title)]);
+    const outer = { position: "relative", overflow: "hidden", touchAction: "pan-y" };
+    // The buttons exist only while revealed (a closed row is just its content).
+    return h("div", { style: outer, onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp },
+      dx > 0 && leading.length ? h("div", { key: "l", style: { position: "absolute", left: 0, top: 0, bottom: 0, display: "flex", width: dx } }, leading.map((it, i) => button(it, i, "l"))) : null,
+      dx < 0 && trailing.length ? h("div", { key: "r", style: { position: "absolute", right: 0, top: 0, bottom: 0, display: "flex", justifyContent: "flex-end", width: -dx } }, trailing.map((it, i) => button(it, i, "t"))) : null,
+      h("div", { key: "c", ...divProps, style: { ...divProps.style, transform: dx ? `translateX(${dx}px)` : undefined, transition: drag.current.active ? "none" : "transform 0.2s ease-out", background: divProps.style.background || "var(--uui-cell-bg, #fff)" } }, children));
+  }
+
+  /// A concatenated Text's spans: `length:flags[:r,g,b,a]` per run, ";"
+  /// between (flags ⊂ b i m u s), applied over the text's own style.
+  function styledRuns(h, text, encoded) {
+    const chars = Array.from(text);
+    let at = 0;
+    return String(encoded).split(";").map((part, i) => {
+      const [len, flags = "", color] = part.split(":");
+      const slice = chars.slice(at, at + Number(len)).join("");
+      at += Number(len);
+      const style = {};
+      if (flags.includes("b")) style.fontWeight = 600;
+      if (flags.includes("i")) style.fontStyle = "italic";
+      if (flags.includes("m")) { style.fontFamily = MONO_FONT; style.fontSize = "0.92em"; }
+      const decorations = [flags.includes("u") ? "underline" : "", flags.includes("s") ? "line-through" : ""].filter(Boolean);
+      if (decorations.length) style.textDecoration = decorations.join(" ");
+      if (color) { const c = color.split(",").map(Number); style.color = `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3] == null ? 1 : c[3]})`; }
+      return h("span", { key: i, style }, slice);
+    });
+  }
+
   function presentation(n, kids) {
     const isAlert = n.style === "alert";
     // Panel chrome colors ride the node, scheme-resolved by the serializer
@@ -1369,51 +1634,102 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         },
       }, head), ...kids];
     }
-    // Sheets: Apple's shapes. Regular width → a centered modal card;
-    // compact → a bottom sheet. Greedy content (a NavigationStack / List /
-    // Form — anything that grows) gets an EXPLICIT height so it lays out
-    // and scrolls inside the panel: the scroll node is `flex: 1 1 0`, which
-    // collapses to nothing inside an auto-height panel (the sheet then sat
-    // mostly below the fold). Content-sized sheets (a few buttons) stay auto.
+    // Sheets: Apple's shapes. Compact width → a bottom sheet with a grabber,
+    // sliding up over a scrim, resting at its detents (`.presentationDetents`:
+    // medium = half, large = full, the default), dragged down to dismiss
+    // unless `.interactiveDismissDisabled`. Regular width → a centered
+    // modal card sized to its content (a growing content — a
+    // NavigationStack / List / Form — gets a fixed height so it scrolls
+    // inside). `.fullScreenCover`: the panel IS the screen.
     const compact = window.innerWidth < 700;
     const child = (n.ch || [])[0] || {};
     const greedy = !!child.growH || !!child.expandH;
-    // `.fullScreenCover`: the panel IS the screen.
-    const cover = !!(n.params && n.params.cover === "1");
-    const sheetStyle = cover
+    const params = n.params || {};
+    const cover = !!(params.cover === "1");
+    const detents = (params.detents || "large").split(",");
+    const grabber = params.grabber !== "0" && !cover && compact;
+    const canDismiss = params.nodismiss !== "1" && !cover;
+    if (cover) {
+      return h("div", { style: { position: "fixed", inset: 0, display: "flex", zIndex: 20, background: panelBg, flexDirection: "column", alignItems: "stretch" } }, kids);
+    }
+    if (isAlert) {
+      return h("div", {
+        style: { position: "fixed", inset: 0, display: "flex", zIndex: 20, alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)" },
+        onClick: () => sendEvent(n.dismiss, ""),
+      }, h("div", {
+        onClick: (e) => e.stopPropagation(),
+        style: { background: panelBg, borderRadius: 14, minWidth: 280, maxWidth: 420, padding: 20, boxShadow: "0 12px 40px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", alignItems: "center" },
+      }, kids));
+    }
+    return h(Sheet, { key: n.dismiss, n, kids, compact, greedy, panelBg, detents, grabber, canDismiss });
+  }
+
+  /// The sheet panel with its entrance animation, detents and drag-to-dismiss.
+  function Sheet({ n, kids, compact, greedy, panelBg, detents, grabber, canDismiss }) {
+    const [shown, setShown] = R.useState(false);
+    const [detent, setDetent] = R.useState(detents.includes("medium") ? "medium" : "large");
+    const [dragY, setDragY] = R.useState(0);
+    const drag = R.useRef({ active: false, y: 0, dragging: false });
+    R.useEffect(() => { const id = requestAnimationFrame(() => setShown(true)); return () => cancelAnimationFrame(id); }, []);
+    const dismiss = () => { setShown(false); setTimeout(() => sendEvent(n.dismiss, ""), 220); };
+    const heightFor = (d) => d === "medium" ? "50%" : "calc(100% - max(env(safe-area-inset-top, 0px), 24px))";
+    // The grabber and the sheet's own top edge take the drag; the content
+    // scrolls as usual.
+    const onDown = (e) => { if (!compact) return; drag.current = { active: true, y: e.clientY, dragging: false }; };
+    const onMove = (e) => {
+      const d = drag.current; if (!d.active) return;
+      const dy = e.clientY - d.y;
+      if (!d.dragging) { if (Math.abs(dy) < 6) return; d.dragging = true; e.currentTarget.setPointerCapture(e.pointerId); }
+      setDragY(Math.max(0, dy));
+    };
+    const onUp = () => {
+      const d = drag.current; if (!d.active) return; d.active = false;
+      const h = window.innerHeight;
+      if (dragY > h * 0.18 && (detent === "large" ? (detents.includes("medium") ? false : canDismiss) : canDismiss)) { dismiss(); return; }
+      if (dragY > h * 0.18 && detent === "large" && detents.includes("medium")) { setDetent("medium"); setDragY(0); return; }
+      if (dragY > h * 0.18 && !canDismiss) { setDragY(0); return; }
+      setDragY(0);
+    };
+    const panelStyle = compact
       ? {
-          background: panelBg, width: "100%", height: "100%", boxSizing: "border-box",
-          overflow: "hidden", padding: 0, display: "flex", flexDirection: "column", alignItems: "stretch",
-        }
-      : compact
-      ? {
-          background: panelBg, borderTopLeftRadius: 14, borderTopRightRadius: 14,
-          width: "100%", boxSizing: "border-box",
-          height: greedy ? "calc(100% - 40px)" : "auto", maxHeight: "calc(100% - 40px)",
-          overflowY: "auto", padding: 16, boxShadow: "0 -8px 32px rgba(0,0,0,0.25)",
+          background: panelBg, borderTopLeftRadius: 16, borderTopRightRadius: 16,
+          width: "100%", boxSizing: "border-box", height: heightFor(detent),
+          overflow: "hidden", padding: greedy ? 0 : "8px 16px 16px",
+          boxShadow: "0 -8px 32px rgba(0,0,0,0.25)",
           display: "flex", flexDirection: "column", alignItems: "stretch",
+          transform: shown ? `translateY(${dragY}px)` : "translateY(100%)",
+          transition: drag.current.dragging ? "none" : "transform 0.24s cubic-bezier(0.2,0.8,0.2,1)",
+          paddingBottom: greedy ? 0 : "calc(16px + env(safe-area-inset-bottom, 0px))",
         }
       : {
           background: panelBg, borderRadius: 14, boxSizing: "border-box",
           width: greedy ? "min(560px, calc(100% - 64px))" : "auto",
           minWidth: 280, maxWidth: "min(640px, calc(100% - 64px))",
           height: greedy ? "min(85%, 760px)" : "auto", maxHeight: "calc(100% - 64px)",
-          overflowY: "auto", padding: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
+          overflow: "hidden", padding: greedy ? 0 : 16, boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
           display: "flex", flexDirection: "column", alignItems: "stretch",
+          // Attached under the toolbar, dropping down as on macOS.
+          marginTop: 52,
+          transform: shown ? "translateY(0)" : "translateY(-24px)", opacity: shown ? 1 : 0,
+          transition: "transform 0.2s cubic-bezier(0.2,0.8,0.2,1), opacity 0.18s ease-out",
         };
     return h("div", {
       style: {
-        position: "fixed", inset: 0, display: "flex", zIndex: 20,
-        alignItems: isAlert || !compact ? "center" : "flex-end", justifyContent: "center",
-        background: cover ? "transparent" : "rgba(0,0,0,0.35)",
+        // The dynamic viewport: on a phone browser the layout viewport runs
+        // under the collapsed toolbar, and a sheet sized to it would keep
+        // its last rows there.
+        position: "fixed", inset: 0, height: "100dvh", display: "flex", zIndex: 20,
+        alignItems: compact ? "flex-end" : "flex-start", justifyContent: "center",
+        background: shown ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0)", transition: "background 0.22s",
       },
-      onClick: () => { if (!cover) sendEvent(n.dismiss, ""); },
+      onClick: () => { if (canDismiss) dismiss(); },
     }, h("div", {
       onClick: (e) => e.stopPropagation(),
-      style: isAlert
-        ? { background: panelBg, borderRadius: 14, minWidth: 280, maxWidth: 420, padding: 20, boxShadow: "0 12px 40px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", alignItems: "center" }
-        : sheetStyle,
-    }, kids));
+      onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp,
+      style: panelStyle,
+    }, grabber ? h("div", { key: "grab", style: { alignSelf: "center", width: 36, height: 5, borderRadius: 3, background: "rgba(120,120,128,0.45)", margin: "6px 0 2px", flex: "none" } }) : null,
+       // The body keeps the home indicator's inset below its last row.
+       h("div", { key: "body", className: "uui-sheet-body", style: { flex: "1 1 auto", minHeight: 0, display: "flex", flexDirection: "column", alignItems: "stretch", overflowY: greedy ? "hidden" : "auto", "--uui-inset-bottom": compact ? "env(safe-area-inset-bottom, 0px)" : "0px" } }, kids)));
   }
 
   let renderDepth = 0;
@@ -1429,8 +1745,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
 
   function renderNode(n, key, parentAxis) {
     if (n.k === "hostView" && (n.view === "navbar" || n.view === "tabbar")) {
-      // Bars ignore box decorations; they are chrome rows.
-      return h(R.Fragment, { key }, hostView(n, {}, []));
+      // Bars ignore box decorations; they are chrome rows. A bar's child is
+      // a `.principal` item's own view.
+      return h(R.Fragment, { key }, hostView(n, {}, (n.ch || []).map((c, i) => render(c, `${i}:${c.k}`, "h"))));
     }
     if (key === "root") {
       // The root view keeps its own size, centered in the canvas — the way
@@ -1485,7 +1802,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // Finite frame bounds: a `.frame(maxWidth: 400)` view is flexible up to
     // the cap (it takes what it is offered, then stops growing).
     const bounds = n.params || {};
-    if (bounds.maxW != null && n.width == null) { s.maxWidth = Number(bounds.maxW); if (!n.expandW) s.width = "100%"; s.boxSizing = "border-box"; }
+    if (bounds.maxW != null && n.width == null) {
+      s.maxWidth = Number(bounds.maxW); if (!n.expandW) s.width = "100%"; s.boxSizing = "border-box";
+      // Capped, it is not greedy any more: it takes up to its cap and sits
+      // where its parent aligns it (SwiftUI centres a `.frame(maxWidth: 320)`
+      // box inside an `.infinity` frame) instead of growing from the edge.
+      s.flexGrow = 0;
+      if (s.alignSelf === "stretch") delete s.alignSelf;
+    }
     if (bounds.maxH != null && n.height == null) { s.maxHeight = Number(bounds.maxH); s.boxSizing = "border-box"; }
     if (bounds.minW != null) s.minWidth = Number(bounds.minW);
     if (bounds.minH != null) s.minHeight = Number(bounds.minH);
@@ -1524,13 +1848,21 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }
     // A compact list renders inset-grouped (iPhone); its rows read the
     // style while they render.
-    const insetGrouped = n.k === "scroll" && !!(n.params || {}).list && window.innerWidth < 700;
+    const isList = n.k === "scroll" && !!(n.params || {}).list;
+    const insetGrouped = isList && !isDesktop();
+    const sidebarList = isList && isDesktop() && inSidebar > 0;
     const previousListStyle = currentListStyle;
     if (insetGrouped) currentListStyle = "insetGrouped";
+    else if (sidebarList) currentListStyle = "sidebar";
+    const isSplit = n.k === "hostView" && n.view === "navsplit";
     let kids;
     try {
-      kids = (n.ch || []).map((c, i) =>
-        render(c, `${i}:${c.k}${c.axis || ""}${c.view || ""}`, childAxis));
+      kids = (n.ch || []).map((c, i) => {
+        // The split's first column is its sidebar.
+        if (isSplit && i === 0) inSidebar++;
+        try { return render(c, `${i}:${c.k}${c.axis || ""}${c.view || ""}`, childAxis); }
+        finally { if (isSplit && i === 0) inSidebar--; }
+      });
     } finally {
       currentListStyle = previousListStyle;
     }
@@ -1590,7 +1922,17 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         s.color = rgba(n.color);
         s.whiteSpace = "pre-wrap";
         s.fontFamily = (n.params && n.params.mono === "1") ? MONO_FONT : SYSTEM_FONT;
-        if (n.lines) {
+        // `.multilineTextAlignment` reaches the text itself.
+        if (n.alignH === "center") s.textAlign = "center";
+        else if (n.alignH === "trailing") s.textAlign = "right";
+        if (n.lines === 1) {
+          // One line: truncate with an ellipsis (a box clamp lets a long
+          // token overflow the row instead).
+          s.whiteSpace = "nowrap"; s.overflow = "hidden"; s.textOverflow = "ellipsis"; s.minWidth = 0;
+          // Never wider than the cell it sits in (a flex item sizes to its
+          // content otherwise and runs past an inset group's edge).
+          s.maxWidth = "100%";
+        } else if (n.lines) {
           s.display = "-webkit-box";
           s.WebkitLineClamp = n.lines;
           // `.truncationMode`: CSS only truncates at the end; head/middle fall
@@ -1600,6 +1942,14 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           s.WebkitBoxOrient = "vertical";
           s.overflow = "hidden";
         }
+        if ((n.params || {}).symbol) {
+          const svg = symbolSVG(h, n.params.symbol, n.size, s.color, n.weight);
+          if (svg) {
+            s.display = "inline-flex"; s.alignItems = "center"; s.justifyContent = "center"; s.lineHeight = 1;
+            return h("span", props, svg);
+          }
+        }
+        if ((n.params || {}).runs) return h("span", props, styledRuns(h, n.v, n.params.runs));
         return h("span", props, n.v);
       }
       case "spacer":
@@ -1682,6 +2032,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       case "progress":
         if (n.v == null) {
           props.className = ((props.className || "") + " uui-spinner").trim();
+          // `.controlSize`: the small spinner is 16px (Apple's), mini 12.
+          const size = (n.params || {}).size;
+          if (size === "small") { s.width = 16; s.height = 16; s.borderWidth = 2; }
+          else if (size === "mini") { s.width = 12; s.height = 12; s.borderWidth = 1.5; }
+          else if (size === "large") { s.width = 32; s.height = 32; s.borderWidth = 3; }
           return h("div", props);
         }
         props.value = n.v;
@@ -1802,18 +2157,30 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         // chrome — this host's row idiom: comfortable padding, a minimum
         // touch height, and a hairline separator.
         if ((n.params || {}).cell === "row") {
-          s.padding = "11px 16px";
-          s.minHeight = 44;
-          s.boxSizing = "border-box";
-          s.justifyContent = "center";
-          if (currentListStyle === "insetGrouped") {
-            props.className = ((props.className || "") + " uui-ig-row").trim();
+          const selected = (n.params || {}).selected === "1";
+          if (currentListStyle === "sidebar") {
+            // macOS sidebar rows: compact, no separators, a rounded accent
+            // selection with a white label.
+            s.padding = "5px 10px"; s.minHeight = 28; s.margin = "1px 10px"; s.borderRadius = 6; s.width = "calc(100% - 20px)"; s.alignSelf = "flex-start";
+            s.boxSizing = "border-box"; s.justifyContent = "center"; s.fontSize = 13;
+            props.className = ((props.className || "") + " uui-sb-row" + (selected ? " uui-sb-selected" : "")).trim();
+            if (selected) s.background = "var(--uui-tint, #0a84ff)";
           } else {
-            s.borderBottom = "1px solid rgba(120,120,128,0.2)";
+            s.padding = "11px 16px";
+            s.minHeight = 44;
+            s.boxSizing = "border-box";
+            s.justifyContent = "center";
+            if (currentListStyle === "insetGrouped") {
+              props.className = ((props.className || "") + " uui-ig-row").trim();
+            } else {
+              s.borderBottom = "1px solid rgba(120,120,128,0.2)";
+            }
+            if (selected) s.background = "rgba(10,132,255,0.18)";
           }
         }
-        if ((n.params || {}).cell === "header" && currentListStyle === "insetGrouped") {
-          props.className = ((props.className || "") + " uui-ig-header").trim();
+        if ((n.params || {}).cell === "header") {
+          if (currentListStyle === "insetGrouped") props.className = ((props.className || "") + " uui-ig-header").trim();
+          else if (currentListStyle === "sidebar") props.className = ((props.className || "") + " uui-sb-header").trim();
         }
         // A GeometryReader wrapper: measure the box the host actually laid
         // out and report it back ("<w>x<h>" on the `.geo` id), so the guest
@@ -1823,6 +2190,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         if ((n.params || {}).geo) {
           return h(GeometryBox, { key, divProps: props, geoId: n.params.geo }, kids);
         }
+        if ((n.params || {}).ctxmenu) attachContextMenu(props, n);
+        if ((n.params || {}).swipe) return h(SwipeRow, { key, n, divProps: props }, kids);
         return h("div", props, kids);
       }
     }
