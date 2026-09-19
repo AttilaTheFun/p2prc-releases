@@ -74,6 +74,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       ".uui-sheet-body>*{align-self:stretch}" +
       ".uui-principal button{color:inherit}" +
       // macOS sidebar rows and headers.
+      // The page itself never scrolls or rubber-bands (a phone browser's
+      // overscroll dragged the bars with the document); only our scroll
+      // containers scroll, and they do not chain to the page at their ends.
+      "html{overscroll-behavior:none;overflow:hidden;height:100%}" +
+      "body{overscroll-behavior:none;overflow:hidden;position:fixed;inset:0;width:100%;height:100dvh;margin:0}" +
+      "[data-edge-scroll],.uui-sheet-body,[data-uui-scroll]{overscroll-behavior:contain}" +
       ".uui-sb-row{transition:background-color 0.1s}" +
       ".uui-sb-row:hover:not(.uui-sb-selected){background:rgba(120,120,128,0.12)}" +
       ".uui-sb-selected,.uui-sb-selected *{color:#fff !important}" +
@@ -1967,6 +1973,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         s.minHeight = 0;
         s.minWidth = 0;
         s[n.axis === "h" ? "overflowX" : "overflowY"] = "auto";
+        s.overscrollBehavior = "contain";
+        props["data-uui-scroll"] = "1";
         if (edgeScrolls.has(n)) {
           // The screen's edge scroll: chrome insets become content insets,
           // and end here (nested scrolls are not under the chrome).
