@@ -12,7 +12,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Convo">
-  <link rel="manifest" href="./assets/manifest.webmanifest">
+  <link rel="manifest" href="./assets/manifest.webmanifest?v=557c7f4e">
   <!-- Seed signaling servers (docs/architecture.md §4): configuration the
        client health-checks like any other server, never trusted outright. -->
   <meta name="convo-seeds" content="https://convo-node-1-667126654079.us-central1.run.app,https://convo-node-2-667126654079.us-central1.run.app,https://convo-node-3-667126654079.us-central1.run.app">
@@ -43,14 +43,14 @@
 <body>
   <canvas id="canvas"></canvas>
   <div id="invite-qr" class="qr"></div>
-  <script src="./runtime/react.production.min.js"></script>
-  <script src="./runtime/react-dom.production.min.js"></script>
-  <script src="./assets/qrcode.js"></script>
-  <script src="./assets/jsqr.js"></script>
-  <script src="./assets/qr.js"></script>
+  <script src="./runtime/react.production.min.js?v=d949f1c3"></script>
+  <script src="./runtime/react-dom.production.min.js?v=35f4f974"></script>
+  <script src="./assets/qrcode.js?v=18ae399f"></script>
+  <script src="./assets/jsqr.js?v=bc40c8a1"></script>
+  <script src="./assets/qr.js?v=8086a504"></script>
   <script type="module">
-    import { boot } from "./runtime/boot.js";
-    import { Dependencies } from "./app_bridge.js";
+    import { boot } from "./runtime/boot.js?v=5a57535e";
+    import { Dependencies } from "./app_bridge.js?v=07934241";
 
     // The host half of the client: WebRTC, localStorage, and the URL. It moves
     // bytes and nothing else — every frame it sends is ciphertext the wasm
