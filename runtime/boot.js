@@ -466,7 +466,7 @@ export async function mountUniversalUI(container, { wasmURL, bundle, renderer = 
   container.appendChild(canvas);
 
   const result = await boot({
-    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=3804290573"),
+    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=3325400846"),
     bundle, rendererName: renderer, embedded: true, dependencies, wasi,
   });
 
