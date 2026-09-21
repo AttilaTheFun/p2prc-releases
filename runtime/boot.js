@@ -4,9 +4,9 @@
 // the runtime. Strings and structs copy at the boundary, so there is no
 // pointer/length or staging-buffer plumbing here.
 
-import { load } from "../app_bridge.js?v=07934241";
+import { load } from "../app_bridge.js?v=b2a4ca64";
 import { createRasterHost } from "./raster.js?v=b562f9c2";
-import { createReactTreeRenderer } from "./react_renderer.js?v=ac972959";
+import { createReactTreeRenderer } from "./react_renderer.js?v=0174af5f";
 import { applyPatch } from "./flat_tree.js?v=d31eaaf5";
 
 // `rendererName` picks the renderer (docs/renderer_layers.md): "webGPU"
@@ -466,7 +466,7 @@ export async function mountUniversalUI(container, { wasmURL, bundle, renderer = 
   container.appendChild(canvas);
 
   const result = await boot({
-    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=125818713"),
+    canvas, wasmURL: bundle ? undefined : (wasmURL || "./app.wasm?v=3804290573"),
     bundle, rendererName: renderer, embedded: true, dependencies, wasi,
   });
 

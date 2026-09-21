@@ -51,8 +51,8 @@
   <script src="./assets/jsqr.js?v=bc40c8a1"></script>
   <script src="./assets/qr.js?v=8086a504"></script>
   <script type="module">
-    import { boot } from "./runtime/boot.js?v=3f0fbfcf";
-    import { Dependencies } from "./app_bridge.js?v=07934241";
+    import { boot } from "./runtime/boot.js?v=bdd804fb";
+    import { Dependencies } from "./app_bridge.js?v=b2a4ca64";
 
     // The host half of the client: WebRTC, localStorage, and the URL. It moves
     // bytes and nothing else — every frame it sends is ciphertext the wasm
@@ -117,7 +117,14 @@
     };
 
     // Binary frames (Part III §23) cross the FFI as base64.
-    const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+    // Chunked: spreading a large buffer into fromCharCode overflows the
+    // call stack (a picture is hundreds of kilobytes).
+    const b64 = (bytes) => {
+      const u = new Uint8Array(bytes);
+      let s = "";
+      for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+      return btoa(s);
+    };
     const unb64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
     /// Trims SDP to what a data channel needs — smaller QR, easier scan. The
@@ -331,7 +338,7 @@
       // honestly about what it can do.
       capabilities(requestID) {
         // A tab pairs by opening the link; it cannot scan a code.
-        done(requestID, true, JSON.stringify({ scansQR: false }));
+        done(requestID, true, JSON.stringify({ scansQR: false, picksImages: true }));
       },
       // The seed signaling servers, from the page's own markup
       // (<meta name="convo-seeds" content="https://convo-node-1-667126654079.us-central1.run.app,https://convo-node-2-667126654079.us-central1.run.app,https://convo-node-3-667126654079.us-central1.run.app">): configuration, not code.
@@ -357,6 +364,52 @@
       async httpGetBytes(requestID, url) {
         try {
           const response = await fetch(url, { mode: "cors" });
+          done(requestID, response.ok, response.ok ? b64(await response.arrayBuffer()) : "");
+        } catch (err) { done(requestID, false, ""); }
+      },
+      // A picture to send: the file chooser (the camera roll on a phone),
+      // downscaled on a canvas and re-encoded, so the message carries a
+      // bounded JPEG whatever was chosen.
+      pickImage(requestID) {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        input.style.display = "none";
+        document.body.appendChild(input);
+        const finish = (ok, text) => { input.remove(); done(requestID, ok, text || ""); };
+        input.onchange = async () => {
+          const file = input.files && input.files[0];
+          if (!file) return finish(false, "");
+          try {
+            const bitmap = await createImageBitmap(file);
+            const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+            canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
+            finish(!!blob, blob ? "image/jpeg|" + canvas.width + "|" + canvas.height + "|" + b64(await blob.arrayBuffer()) : "");
+          } catch (err) { finish(false, ""); }
+        };
+        window.addEventListener("focus", () => {
+          setTimeout(() => { if (!input.files || !input.files.length) finish(false, ""); }, 1200);
+        }, { once: true });
+        input.click();
+      },
+      // Decoded picture bytes as something AsyncImage can show: an object
+      // URL for the session (one per key).
+      imageURLs: new Map(),
+      imageURL(requestID, key, bytes64, mime) {
+        try {
+          let url = this.imageURLs.get(key);
+          if (!url) { url = URL.createObjectURL(new Blob([unb64(bytes64)], { type: mime })); this.imageURLs.set(key, url); }
+          done(requestID, true, url);
+        } catch (err) { done(requestID, false, ""); }
+      },
+      // A member-only GET (protocol §19): the signature rides in a header.
+      async httpGetBytesSigned(requestID, url, auth) {
+        try {
+          const response = await fetch(url, { mode: "cors", headers: { "X-Convo-Auth": auth } });
           done(requestID, response.ok, response.ok ? b64(await response.arrayBuffer()) : "");
         } catch (err) { done(requestID, false, ""); }
       },
@@ -452,7 +505,7 @@
       // Local development serves without cache headers, and a stale cached
       // module quietly runs old client logic against new HTML. Bust it there;
       // the published site relies on normal HTTP caching.
-      wasmURL: "./app.wasm?v=125818713" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
+      wasmURL: "./app.wasm?v=3804290573" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
       rendererName: new URLSearchParams(location.search).get("renderer") || "react",
       dependencies: { host: Dependencies.convoHost(() => host) },
     }).then((result) => {

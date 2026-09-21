@@ -80,6 +80,11 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       "html{overscroll-behavior:none;overflow:hidden;height:100%}" +
       "body{overscroll-behavior:none;overflow:hidden;position:fixed;inset:0;width:100%;height:100dvh;margin:0}" +
       "[data-edge-scroll],.uui-sheet-body,[data-uui-scroll]{overscroll-behavior:contain}" +
+      ".uui-no-sep::after{display:none!important}" +
+      // A grouped cell's fill, for a list outside a grouped container too
+      // (the fallback used to be white, which flashed in dark mode).
+      ":root{--uui-cell-bg:#fff;--uui-separator:rgba(60,60,67,0.29)}" +
+      "@media (prefers-color-scheme: dark){:root{--uui-cell-bg:#1c1c1e;--uui-separator:rgba(84,84,88,0.65)}}" +
       ".uui-plain-row{position:relative}" +
       ".uui-plain-row::after{content:'';position:absolute;left:16px;right:0;bottom:0;height:1px;background:rgba(120,120,128,0.3)}" +
       ".uui-plain-row:last-child::after{display:none}" +
@@ -528,6 +533,41 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     }, children);
   }
 
+  // The bar row: the title sits centred on the whole bar (an absolute
+  // box), inset by the wider of the two clusters so it never runs under a
+  // Back pill or a trailing glyph — the way iOS centres a title and only
+  // shortens it when the items press in. Measured after layout.
+  function CenteredBar({ style, children }) {
+    const ref = R.useRef(null);
+    const titleRef = R.useRef(null);
+    const [insets, setInsets] = R.useState({ left: 64, right: 64 });
+    R.useLayoutEffect(() => {
+      const el = ref.current;
+      if (!el || el.children.length < 3) return undefined;
+      const measure = () => {
+        const bar = el.getBoundingClientRect().width;
+        const leftW = Math.round(el.children[0].getBoundingClientRect().width) + 8;
+        const rightW = Math.round(el.children[2].getBoundingClientRect().width) + 8;
+        const title = titleRef.current ? titleRef.current.scrollWidth : 0;
+        // Centred on the bar when the title fits between equal insets;
+        // otherwise it moves over towards the narrower cluster (and then
+        // shortens), the way UIKit places a title next to a Back button.
+        const even = Math.max(leftW, rightW);
+        const next = title + 2 * even <= bar ? { left: even, right: even } : { left: leftW, right: rightW };
+        setInsets((current) => (current.left === next.left && current.right === next.right ? current : next));
+      };
+      measure();
+      const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+      if (observer) { observer.observe(el); observer.observe(el.children[0]); observer.observe(el.children[2]); if (titleRef.current) observer.observe(titleRef.current); }
+      return () => { if (observer) observer.disconnect(); };
+    });
+    const [leading, centre, trailing] = R.Children.toArray(children);
+    return h("div", { ref, style }, leading,
+      h("div", { style: { position: "absolute", left: insets.left, right: insets.right, top: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, pointerEvents: "none" } },
+        h("div", { ref: titleRef, style: { pointerEvents: "auto", minWidth: 0, maxWidth: "100%", display: "flex", justifyContent: "center" } }, centre)),
+      trailing);
+  }
+
   function navBar(n, kids) {
     const p = n.params || {};
     const dark = p.dark === "1";
@@ -536,7 +576,9 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     // content (iOS); it takes its material once the title collapses.
     const largeShowing = p.large === "1" && Number(p.inlineAlpha || 1) < 0.5;
     const bar = {
-      display: "flex", alignItems: "center", width: "100%", height: 52, flex: "none",
+      // Three columns with equal sides: the title is centred on the bar,
+      // not between clusters of different width (a Back pill and a glyph).
+      display: "flex", justifyContent: "space-between", alignItems: "center", position: "relative", width: "100%", height: 52, flex: "none",
       boxSizing: "border-box", padding: "0 8px",
       // Transparent, no hairline: the bar is its buttons and title over the
       // content on every canvas (Logan's call for the web apps); a principal
@@ -601,8 +643,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
           onClick: () => sendEvent(n.edit, `trailingItem:${i}`),
         }, itemContent(trailing[i] || "", trailingSymbols[i]));
     // Symmetric side clusters keep the title centered.
-    const side = { display: "flex", alignItems: "center", minWidth: 64, flex: "0 0 auto" };
-    return h("div", { style: bar },
+    const side = { display: "flex", alignItems: "center", minWidth: 64 };
+    return h(CenteredBar, { style: bar },
       h("div", { style: side },
         n.pill && desktop && p.title
           ? h("span", { key: "lt", style: { fontWeight: 600, fontSize: 15, padding: "0 6px", whiteSpace: "nowrap" } }, p.title)
@@ -617,7 +659,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         }, itemContent(title, leadingSymbols[i])))),
       h("div", {
         style: {
-          flex: 1, textAlign: "center", fontWeight: 600, fontSize: 16,
+          textAlign: "center", fontWeight: 600, fontSize: 16,
           // A principal view of the app's own may hang below the bar (a name
           // pill under an avatar): only words are clipped.
           overflow: p.principalContent === "1" ? "visible" : "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -727,12 +769,21 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
         style: {
           position: "absolute", top: 0, left: 0, right: 0, zIndex: 5, overflow: "visible",
           paddingTop: "env(safe-area-inset-top, 0px)", boxSizing: "border-box",
-          // No fill, no hairline — but content scrolling under the bar is
-          // frosted so the title and buttons stay legible (the scroll-edge
-          // effect), on every canvas.
-          backdropFilter: "blur(18px) saturate(1.3)", WebkitBackdropFilter: "blur(18px) saturate(1.3)",
         },
-      } : { key: "bar" }, navBar({
+      } : { key: "bar" },
+        // The scroll-edge effect: content passing under the bar is frosted
+        // by a layer of its own that fades out at the bottom, so the bar
+        // has no fill, no hairline and no hard edge over the first row.
+        pinned ? h("div", {
+          key: "frost",
+          style: {
+            position: "absolute", inset: 0, pointerEvents: "none",
+            backdropFilter: "blur(18px) saturate(1.3)", WebkitBackdropFilter: "blur(18px) saturate(1.3)",
+            maskImage: "linear-gradient(to bottom, rgba(0,0,0,1) 62%, rgba(0,0,0,0) 100%)",
+            WebkitMaskImage: "linear-gradient(to bottom, rgba(0,0,0,1) 62%, rgba(0,0,0,0) 100%)",
+          },
+        }) : null,
+        navBar({
         edit: n.edit,
         pill,
         onBack: splitBack,
@@ -1265,6 +1316,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
   // a compact list's rows render, as on an iPhone; "sidebar" in a wide
   // split view's sidebar column; plain rows otherwise).
   let currentListStyle = null;
+  // `.listRowSeparator(.hidden)`: no lines between the rows of this list.
+  let currentListSeparators = true;
   const INSET_TOP = "var(--uui-inset-top, 0px)";
   const INSET_BOTTOM = "var(--uui-inset-bottom, 0px)";
   const edgeScrolls = new WeakSet();
@@ -1859,6 +1912,12 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     if ((parentAxis === "v" && n.growW) || (parentAxis === "h" && n.growH)) {
       s.alignSelf = "stretch";
     }
+    // A flex child may not shrink below its content by default, so one long
+    // word (a resume command, an address) widens the whole row. SwiftUI
+    // squeezes such a child and lets it truncate; a fixed frame keeps its
+    // size through the minimum set with its width.
+    if (parentAxis === "h" && n.width == null) s.minWidth = 0;
+    if (parentAxis === "v" && n.height == null) s.minHeight = 0;
     // In a ZStack layer, greedy nodes fill the stack (e.g. a shape backdrop).
     if (parentAxis === "z") {
       if (n.growW) s.width = "100%";
@@ -1941,6 +2000,8 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
     const plainList = isList && !isDesktop() && (n.params || {}).listStyle === "plain";
     const insetGrouped = isList && !isDesktop() && !plainList;
     const sidebarList = isList && isDesktop() && inSidebar > 0;
+    const previousSeparators = currentListSeparators;
+    if (isList) currentListSeparators = (n.params || {}).separators !== "0";
     const previousListStyle = currentListStyle;
     if (insetGrouped) currentListStyle = "insetGrouped";
     else if (plainList) currentListStyle = "plain";
@@ -1956,6 +2017,7 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
       });
     } finally {
       currentListStyle = previousListStyle;
+      currentListSeparators = previousSeparators;
     }
     if (tabPill) pendingTabPill = null;
 
@@ -2269,15 +2331,15 @@ export function createReactTreeRenderer({ container, sendEvent, assetBase = "ass
             s.boxSizing = "border-box";
             s.justifyContent = "center";
             if (currentListStyle === "insetGrouped") {
-              props.className = ((props.className || "") + " uui-ig-row").trim();
+              props.className = ((props.className || "") + " uui-ig-row" + (currentListSeparators ? "" : " uui-no-sep")).trim();
               if (selected) s.background = "rgba(10,132,255,0.18)";
             } else if (currentListStyle === "plain") {
               // Messages' inbox: the row on the page, a hairline from the
               // text column, a gray highlight for the selected row.
-              props.className = ((props.className || "") + " uui-plain-row").trim();
+              props.className = ((props.className || "") + " uui-plain-row" + (currentListSeparators ? "" : " uui-no-sep")).trim();
               if (selected) s.background = "rgba(120,120,128,0.22)";
             } else {
-              s.borderBottom = "1px solid rgba(120,120,128,0.2)";
+              if (currentListSeparators) s.borderBottom = "1px solid rgba(120,120,128,0.2)";
               if (selected) s.background = "rgba(10,132,255,0.18)";
             }
           }
