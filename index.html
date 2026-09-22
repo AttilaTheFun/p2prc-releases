@@ -51,7 +51,7 @@
   <script src="./assets/jsqr.js?v=bc40c8a1"></script>
   <script src="./assets/qr.js?v=8086a504"></script>
   <script type="module">
-    import { boot } from "./runtime/boot.js?v=2fb1ea24";
+    import { boot } from "./runtime/boot.js?v=5872c20e";
     import { Dependencies } from "./app_bridge.js?v=b2a4ca64";
 
     // The host half of the client: WebRTC, localStorage, and the URL. It moves
@@ -89,6 +89,59 @@
     document.body.appendChild(videoPanel);
     const showVideo = (on) => { videoPanel.style.display = on ? "block" : "none"; };
     const openingHash = location.hash;   // captured before we ever rewrite it
+
+    // Secrets at rest: a non-extractable AES-GCM key kept in IndexedDB wraps
+    // what goes to localStorage as "v1:" + base64(iv ‖ ciphertext). Without
+    // IndexedDB or WebCrypto (an old or locked-down browser) values stay clear.
+    const secrets = (() => {
+      const PREFIX = "v1:";
+      let keyPromise = null;
+      const idb = (mode, fn) => new Promise((resolve, reject) => {
+        const open = indexedDB.open("convo-secrets", 1);
+        open.onupgradeneeded = () => open.result.createObjectStore("keys");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction("keys", mode);
+          const req = fn(tx.objectStore("keys"));
+          req.onsuccess = () => { resolve(req.result); db.close(); };
+          req.onerror = () => { reject(req.error); db.close(); };
+        };
+      });
+      const key = () => {
+        if (!keyPromise) keyPromise = (async () => {
+          const held = await idb("readonly", (store) => store.get("wrap"));
+          if (held) return held;
+          const fresh = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+          await idb("readwrite", (store) => store.put(fresh, "wrap"));
+          return fresh;
+        })().catch(() => null);
+        return keyPromise;
+      };
+      const b64 = (bytes) => btoa(String.fromCharCode(...bytes));
+      const unb64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+      return {
+        PREFIX,
+        async seal(value) {
+          const k = await key();
+          if (!k) return value;
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, new TextEncoder().encode(value)));
+          const joined = new Uint8Array(iv.length + sealed.length); joined.set(iv); joined.set(sealed, iv.length);
+          return PREFIX + b64(joined);
+        },
+        async open(stored) {
+          if (!stored.startsWith(PREFIX)) return stored;
+          try {
+            const k = await key();
+            if (!k) return "";
+            const bytes = unb64(stored.slice(PREFIX.length));
+            const opened = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.slice(0, 12) }, k, bytes.slice(12));
+            return new TextDecoder().decode(opened);
+          } catch (err) { return ""; }
+        },
+      };
+    })();
 
     // The guest starts asking for things during its first render, which happens
     // inside boot() — before boot() has returned us the bridge to answer on. So
@@ -322,11 +375,25 @@
       },
       save(key, value) { localStorage.setItem(scoped(key), value); },
       load(requestID, key) { done(requestID, true, localStorage.getItem(scoped(key)) || ""); },
-      // A browser has no keychain: the identity's secret lives in this
-      // origin's localStorage, as every web wallet's does. The recovery
-      // phrase shown at creation is the way to keep it.
-      saveSecret(key, value) { if (value) localStorage.setItem(scoped("secret:" + key), value); else localStorage.removeItem(scoped("secret:" + key)); },
-      loadSecret(requestID, key) { done(requestID, true, localStorage.getItem(scoped("secret:" + key)) || ""); },
+      // A browser has no keychain. Secrets sit in this origin's localStorage
+      // sealed (AES-GCM) under a non-extractable key that lives in IndexedDB
+      // and never exists as bytes a script can read; a value an earlier
+      // build stored in the clear is sealed on first read. (WebAuthn's PRF
+      // would bind it to the device's authenticator, but needs a tap at
+      // every launch; the recovery phrase remains the way to keep it.)
+      saveSecret(key, value) {
+        const name = scoped("secret:" + key);
+        if (!value) { localStorage.removeItem(name); return; }
+        secrets.seal(value).then((sealed) => localStorage.setItem(name, sealed));
+      },
+      loadSecret(requestID, key) {
+        const name = scoped("secret:" + key);
+        const stored = localStorage.getItem(name) || "";
+        secrets.open(stored).then((value) => {
+          if (stored && !stored.startsWith(secrets.PREFIX) && value) secrets.seal(value).then((sealed) => localStorage.setItem(name, sealed));
+          done(requestID, true, value);
+        });
+      },
       pageURL(requestID) { done(requestID, true, location.origin + location.pathname); },
       openingHash(requestID) { done(requestID, true, openingHash); },
       setHash(value) { history.replaceState(null, "", "#" + value); },
@@ -505,7 +572,7 @@
       // Local development serves without cache headers, and a stale cached
       // module quietly runs old client logic against new HTML. Bust it there;
       // the published site relies on normal HTTP caching.
-      wasmURL: "./app.wasm?v=548443906" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
+      wasmURL: "./app.wasm?v=1240614976" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
       rendererName: new URLSearchParams(location.search).get("renderer") || "react",
       dependencies: { host: Dependencies.convoHost(() => host) },
     }).then((result) => {
