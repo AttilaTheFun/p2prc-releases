@@ -14,7 +14,9 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Convo">
-  <link rel="manifest" href="./assets/manifest.webmanifest?v=1a012420">
+  <link rel="manifest" href="./assets/manifest.webmanifest?v=3e51fc4a">
+  <link rel="icon" type="image/png" href="./assets/Convo-1024.png">
+  <link rel="apple-touch-icon" href="./assets/Convo-1024.png">
   <!-- Seed signaling servers (docs/architecture.md §4): configuration the
        client health-checks like any other server, never trusted outright. -->
   <meta name="convo-seeds" content="https://convo-node-1-667126654079.us-central1.run.app,https://convo-node-2-667126654079.us-central1.run.app,https://convo-node-3-667126654079.us-central1.run.app">
@@ -51,7 +53,7 @@
   <script src="./assets/jsqr.js?v=bc40c8a1"></script>
   <script src="./assets/qr.js?v=8086a504"></script>
   <script type="module">
-    import { boot } from "./runtime/boot.js?v=5872c20e";
+    import { boot } from "./runtime/boot.js?v=81b76acf";
     import { Dependencies } from "./app_bridge.js?v=b2a4ca64";
 
     // The host half of the client: WebRTC, localStorage, and the URL. It moves
@@ -572,7 +574,7 @@
       // Local development serves without cache headers, and a stale cached
       // module quietly runs old client logic against new HTML. Bust it there;
       // the published site relies on normal HTTP caching.
-      wasmURL: "./app.wasm?v=1240614976" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
+      wasmURL: "./app.wasm?v=860293295" + (location.hostname === "localhost" ? "?t=" + Date.now() : ""),
       rendererName: new URLSearchParams(location.search).get("renderer") || "react",
       dependencies: { host: Dependencies.convoHost(() => host) },
     }).then((result) => {
